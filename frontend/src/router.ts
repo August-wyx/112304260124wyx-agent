@@ -23,5 +23,5 @@ router.beforeEach(async to => {
   await auth.restore()
   if (to.meta.requiresAuth && !auth.account && !auth.restoreError) return { path: '/login', query: { redirect: to.fullPath } }
 })
-router.afterEach(to => { document.title = `${to.meta.title} · 片刻 CineLab` })
+router.afterEach(to => { document.title = `${to.meta.title} · 华文影视` })
 export default router

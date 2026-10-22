@@ -8,6 +8,7 @@ import type { Algorithm, HistoryUser, Movie, Page } from '../types'
 import StatePanel from '../components/StatePanel.vue'
 import PageNav from '../components/PageNav.vue'
 import AlgorithmPanel from '../components/AlgorithmPanel.vue'
+import { genreLabel } from '../genres'
 
 const route = useRoute(), router = useRouter(), auth = useAuth()
 const source = ref('ml'), algorithm = ref('popular'), selected = ref('')
@@ -227,7 +228,7 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
           <StatePanel :loading="genres.loading.value" :error="genres.error.value" @retry="fetchGenres">
             <div class="genre-chips">
               <button v-for="genre in genres.data.value?.items || []" :key="genre" type="button"
-                :class="{ active: interests.includes(genre) }" @click="toggleInterest(genre)">{{ genre }}</button>
+                :class="{ active: interests.includes(genre) }" @click="toggleInterest(genre)">{{ genreLabel(genre) }}</button>
             </div>
           </StatePanel>
         </section>
@@ -258,7 +259,7 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
               </div>
               <div class="genre-profile">
                 <div v-for="genre in genreProfile" :key="genre.name" class="genre-line">
-                  <span>{{ genre.name }}</span>
+                  <span>{{ genreLabel(genre.name) }}</span>
                   <div class="genre-track"><i :style="{ width: genre.percent + '%' }" /></div>
                   <small>{{ genre.count }} 部</small>
                 </div>
@@ -285,7 +286,7 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
                   <template #default="scope"><RouterLink :to="`/movies/${scope.row.movie_id}`" class="text-link">{{ scope.row.movielens_title }}</RouterLink></template>
                 </el-table-column>
                 <el-table-column label="类型" min-width="150">
-                  <template #default="scope">{{ (scope.row.genres || []).join(' / ') || '未收录' }}</template>
+                  <template #default="scope">{{ (scope.row.genres || []).map(genreLabel).join(' / ') || '未收录' }}</template>
                 </el-table-column>
                 <el-table-column prop="movie_id" label="电影ID" width="100" />
                 <el-table-column prop="rating" label="历史评分" width="100" />
@@ -331,11 +332,11 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
   </div>
 </template>
 <style scoped>
-.lab-hero{display:flex;justify-content:space-between;align-items:end;gap:32px;border:1px solid var(--border);border-radius:12px;padding:34px 36px;background:linear-gradient(115deg,#192b2b,#182424 68%,#1d2b29);margin-bottom:24px;flex-wrap:wrap}
-.lab-hero h1{margin:0 0 12px;font-size:clamp(30px,3.2vw,42px)}
+.lab-hero{display:flex;justify-content:space-between;align-items:end;gap:32px;border:1px solid var(--border);border-radius:12px;padding:34px 36px;background:radial-gradient(120% 150% at 92% 0%,#f06a5018,transparent 58%),linear-gradient(120deg,#151b25,#131922 62%,#1b2431);margin-bottom:24px;flex-wrap:wrap}
+.lab-hero h1{margin:0 0 12px;font-family:var(--font-display);font-size:clamp(30px,3.2vw,42px);font-weight:600;letter-spacing:.01em}
 .lab-hero-copy>p:last-child{color:var(--muted);font-size:14px;max-width:46em}
 .lab-hero-badges{display:flex;gap:14px;flex-wrap:wrap}
-.lab-hero-badges>div{border:1px solid #dfb76c2e;background:#dfb76c0a;border-radius:8px;padding:12px 16px;min-width:120px}
+.lab-hero-badges>div{border:1px solid #f06a5033;background:#f06a500a;border-radius:8px;padding:12px 16px;min-width:120px}
 .lab-hero-badges span{display:block;font-size:10px;letter-spacing:.14em;color:var(--muted)}
 .lab-hero-badges strong{display:block;font-size:16px;color:var(--accent);margin-top:4px}
 .lab-hero-badges small{display:block;font-size:10px;color:var(--muted);margin-top:2px}
@@ -343,25 +344,25 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
 .quick-users button{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:99px;padding:3px 12px;font-size:11px;transition:border-color .18s,color .18s}
 .quick-users button:hover,.quick-users button.active{border-color:var(--accent);color:var(--accent)}
 .algorithm-cards{display:flex;flex-direction:column;gap:8px}
-.algorithm-card{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;border:1px solid var(--border);background:#182322;border-radius:7px;padding:10px 12px;color:var(--text);transition:border-color .18s,background .18s}
-.algorithm-card:hover{border-color:#dfb76c66}
+.algorithm-card{display:grid;grid-template-columns:1fr auto;gap:2px 10px;text-align:left;border:1px solid var(--border);background:var(--surface-soft);border-radius:7px;padding:10px 12px;color:var(--text);transition:border-color .18s,background .18s}
+.algorithm-card:hover{border-color:#f06a5059}
 .algorithm-card.active{border-color:var(--accent);background:var(--accent-tint)}
 .algorithm-name{font-size:13px;font-weight:600}
 .algorithm-code{grid-column:1;font-size:10px;font-family:monospace;color:var(--muted)}
 .algorithm-state{grid-column:2;grid-row:1/3;align-self:center;font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:2px 8px;white-space:nowrap}
-.algorithm-state.ready{color:var(--accent);border-color:#dfb76c55}
+.algorithm-state.ready{color:var(--accent);border-color:#f06a5066}
 .model-info .mono{font-family:monospace;font-size:11px;line-height:1.5}
 .app-behaviour{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap}
 .app-behaviour div{display:flex;align-items:baseline;gap:5px}
 .app-behaviour strong{font-family:Georgia,serif;font-size:20px;color:var(--accent)}
 .app-behaviour span{font-size:10px;color:var(--muted)}
 .app-behaviour .behaviour-state{font-size:10px;border:1px solid var(--border);border-radius:99px;padding:3px 10px;color:var(--muted)}
-.app-behaviour .behaviour-state.zero{color:var(--accent);border-color:#dfb76c66;background:var(--accent-tint)}
-.interest-panel{border:1px solid var(--border);border-radius:8px;padding:14px 14px 16px;background:#182322;margin-top:4px}
+.app-behaviour .behaviour-state.zero{color:var(--accent);border-color:#f06a5066;background:var(--accent-tint)}
+.interest-panel{border:1px solid var(--border);border-radius:8px;padding:14px 14px 16px;background:var(--surface-soft);margin-top:4px}
 .interest-panel h3{margin:0;font-size:13px}
 .genre-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .genre-chips button{border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:99px;padding:4px 10px;font-size:11px;transition:border-color .18s,color .18s}
-.genre-chips button:hover{color:var(--text);border-color:#dfb76c66}
+.genre-chips button:hover{color:var(--text);border-color:#f06a5059}
 .genre-chips button.active{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
 .profile-panel{border:1px solid var(--border);background:var(--surface);border-radius:8px;overflow:hidden}
 .profile-body{display:grid;grid-template-columns:200px minmax(0,1fr);gap:28px;padding:22px 24px}
@@ -372,8 +373,8 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
 .genre-line{display:grid;grid-template-columns:76px minmax(0,1fr) 46px;align-items:center;gap:10px;font-size:12px}
 .genre-line>span{color:var(--text)}
 .genre-line small{color:var(--muted);font-size:10px;text-align:right}
-.genre-track{height:5px;background:#31413e;border-radius:99px;overflow:hidden}
-.genre-track i{display:block;height:100%;background:linear-gradient(90deg,#6f5a33,var(--accent));border-radius:99px}
+.genre-track{height:5px;background:#2c3646;border-radius:99px;overflow:hidden}
+.genre-track i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--accent));border-radius:99px}
 .evaluation-body{padding:20px 24px}
 .evaluation-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
 .evaluation-meta small{font-size:11px;color:var(--muted);font-family:monospace}

@@ -4,6 +4,7 @@ import { Connection } from '@element-plus/icons-vue'
 import http, { ApiError } from '../api'
 import StatePanel from './StatePanel.vue'
 import MoviePoster from './MoviePoster.vue'
+import { genreLabel } from '../genres'
 import type { AlgorithmResult, Movie } from '../types'
 
 const props = withDefaults(defineProps<{
@@ -32,7 +33,7 @@ const algorithmNames: Record<string, string> = {
 }
 const algorithmLabel = computed(() => algorithmNames[props.algorithm] ? `${algorithmNames[props.algorithm]} · ${props.algorithm}` : props.algorithm)
 const engineLabels: Record<string, string> = {
-  content: 'CONTENT-BASED ENGINE', popular: 'POPULARITY ENGINE',
+  content: 'CONTENT-BASED ENGINE', popular: 'POPULARITY ENGINE', als: 'MATRIX FACTORIZATION',
   itemcf: 'ITEM-BASED COLLABORATIVE FILTERING', cold_start: 'COLD-START ENGINE',
 }
 const engineLabel = computed(() => engineLabels[props.algorithm] || 'RECOMMENDATION ENGINE')
@@ -45,12 +46,16 @@ const emptyTexts: Record<string, string> = {
 }
 const emptyResultText = computed(() => emptyTexts[props.algorithm] || '本次没有推荐结果。')
 
-const rows = computed(() => (result.value?.items || []).map(item => ({
-  ...item,
-  movie: movies.value[item.movie_id] || null,
-  percent: scorePercent(item.score),
-  matched: matchedGenres(movies.value[item.movie_id]?.genres || []),
-})))
+const rows = computed(() => (result.value?.items || []).map(item => {
+  const movie = movies.value[item.movie_id] || null
+  return {
+    ...item,
+    movie,
+    percent: scorePercent(item.score),
+    matched: matchedGenres(movie?.genres || []),
+    genres: (movie?.genres || []).map(name => ({ name, label: genreLabel(name), match: matchedGenres([name]).length > 0 })),
+  }
+}))
 const generated = computed(() => result.value ? new Date(result.value.generated_at).toLocaleString('zh-CN', { hour12: false }) : '')
 
 function scorePercent(score: number | null) {
@@ -119,16 +124,16 @@ watch(() => props.endpoint, load, { immediate: true })
           <dl class="result-meta">
             <div><dt>模型版本</dt><dd>{{ result.model_version }}</dd></div>
             <div><dt>运行模式</dt><dd>{{ result.runtime_mode }}</dd></div>
-            <div v-if="algorithm === 'cold_start'"><dt>兴趣</dt><dd>{{ interests.length ? interests.join(' / ') : '未选择 · 热门回退' }}</dd></div>
+            <div v-if="algorithm === 'cold_start'"><dt>兴趣</dt><dd>{{ interests.length ? interests.map(genreLabel).join(' / ') : '未选择 · 热门回退' }}</dd></div>
             <div><dt>生成时间</dt><dd>{{ generated }}</dd></div>
           </dl>
         </header>
         <ol v-if="result.items.length" class="rec-list">
           <li v-for="row in rows" :key="row.movie_id" class="rec-card">
-            <span class="rec-rank">{{ String(row.rank).padStart(2, '0') }}</span>
             <RouterLink class="rec-poster" :to="`/movies/${row.movie_id}`" :aria-label="`查看 ${row.movie?.movielens_title || row.movie_id} 详情`">
               <MoviePoster :path="row.movie?.poster_path" :title="row.movie?.movielens_title || `电影 ${row.movie_id}`"
                 :movie-id="row.movie_id" :year="row.movie?.release_year" :genres="row.movie?.genres" />
+              <span class="rec-rank">{{ String(row.rank).padStart(2, '0') }}</span>
             </RouterLink>
             <div class="rec-body">
               <div class="rec-title">
@@ -138,16 +143,19 @@ watch(() => props.endpoint, load, { immediate: true })
                 <span class="rec-year">{{ row.movie?.release_year || '年份未收录' }}</span>
               </div>
               <div class="rec-genres">
-                <span v-for="genre in row.movie?.genres || []" :key="genre" :class="{ match: highlightEnabled && profileGenres.includes(genre) }">{{ genre }}</span>
-                <span v-if="!row.movie" class="muted">电影 #{{ row.movie_id }}</span>
+                <span v-for="genre in row.genres" :key="genre.name" :class="{ match: highlightEnabled && genre.match }">{{ genre.label }}</span>
+                <span v-if="!row.movie" class="rec-fallback">电影 #{{ row.movie_id }}</span>
               </div>
               <div class="score-row">
-                <span>{{ scoreLabel }}</span>
+                <span class="score-label">{{ scoreLabel }}</span>
                 <div class="score-track" role="img" :aria-label="`${scoreLabel} ${row.percent}%`"><i :style="{ width: row.percent + '%' }" /></div>
                 <strong>{{ row.score === null ? '—' : row.score.toFixed(3) }}</strong>
               </div>
-              <p v-if="highlightEnabled && row.matched.length" class="rec-why">{{ algorithm === 'cold_start' ? '命中所选兴趣' : '与观众偏好类型重合' }}：{{ row.matched.join(' / ') }}</p>
+              <p v-if="highlightEnabled && row.matched.length" class="rec-why">
+                {{ algorithm === 'cold_start' ? '命中所选兴趣' : '与观众偏好类型重合' }}：{{ row.matched.map(genreLabel).join(' / ') }}
+              </p>
             </div>
+            <RouterLink class="rec-more" :to="`/movies/${row.movie_id}`">详情<span aria-hidden="true">→</span></RouterLink>
           </li>
         </ol>
       </div>
@@ -155,32 +163,35 @@ watch(() => props.endpoint, load, { immediate: true })
   </section>
 </template>
 <style scoped>
-.result-head{display:flex;justify-content:space-between;gap:24px;padding:22px 24px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.result-head h3{margin-top:12px;font-size:18px}
+.result-head{display:flex;justify-content:space-between;gap:24px;padding:22px 24px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.result-head h3{margin-top:12px;font-family:var(--font-display);font-size:19px;letter-spacing:.01em}
 .result-head p{margin-top:8px;font-size:12px;color:var(--muted)}
 .result-meta{display:flex;gap:22px;flex-wrap:wrap;margin:0}
-.result-meta dt{font-size:10px;letter-spacing:.12em;color:var(--muted)}
+.result-meta dt{font-size:10px;letter-spacing:.14em;color:var(--muted)}
 .result-meta dd{margin:4px 0 0;font-size:12px}
-.rec-list{list-style:none;margin:0;padding:8px 24px 24px;display:flex;flex-direction:column}
-.rec-card{display:grid;grid-template-columns:54px 92px minmax(0,1fr);gap:18px;padding:18px 0;border-bottom:1px solid #31413e66;align-items:start}
-.rec-card:last-child{border-bottom:0}
-.rec-rank{font-family:Georgia,serif;font-size:26px;color:var(--accent);line-height:1;padding-top:4px}
-.rec-poster{display:block;border-radius:6px;overflow:hidden;transition:border-color .18s}
-.rec-poster .movie-poster{aspect-ratio:2/3;border-radius:6px}
-.rec-poster:hover .movie-poster{border-color:var(--accent)}
+.rec-list{list-style:none;margin:0;padding:14px;display:flex;flex-direction:column;gap:10px}
+.rec-card{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:18px;align-items:center;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface-soft);transition:border-color .2s,transform .2s,background .2s}
+.rec-card:hover{border-color:#f06a5059;background:#202a39;transform:translateX(4px)}
+.rec-poster{position:relative;display:block;border-radius:8px;overflow:hidden;transition:box-shadow .2s}
+.rec-poster:hover{box-shadow:0 8px 22px #00000059}
+.rec-rank{position:absolute;left:6px;top:6px;z-index:2;font-family:var(--font-display);font-size:12px;line-height:1.5;letter-spacing:.04em;color:var(--gold);background:#0c0f15d9;border:1px solid #ffffff1f;border-radius:4px;padding:0 6px}
 .rec-body{min-width:0}
 .rec-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-.rec-title h4{margin:0;font-size:16px;font-weight:600;line-height:1.45}
+.rec-title h4{margin:0;font-family:var(--font-display);font-size:16px;font-weight:600;line-height:1.45;letter-spacing:.01em}
 .rec-title a:hover h4{color:var(--accent)}
 .rec-year{font-size:11px;color:var(--muted);font-family:monospace}
 .rec-genres{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.rec-genres span{font-size:10px;padding:2px 8px;border:1px solid var(--border);border-radius:99px;color:var(--muted)}
-.rec-genres span.match{color:var(--accent);border-color:#dfb76c66;background:var(--accent-tint)}
+.rec-genres span{font-size:10px;padding:2px 9px;border:1px solid var(--border);border-radius:99px;color:var(--muted);background:#0c0f1566}
+.rec-genres span.match{color:var(--accent);border-color:#f06a5066;background:var(--accent-tint)}
+.rec-genres span.rec-fallback{color:var(--muted)}
 .score-row{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:11px;color:var(--muted)}
-.score-track{flex:1;max-width:220px;height:4px;background:#31413e;border-radius:99px;overflow:hidden}
-.score-track i{display:block;height:100%;background:linear-gradient(90deg,#8f7440,var(--accent));border-radius:99px}
+.score-label{white-space:nowrap;letter-spacing:.04em}
+.score-track{flex:1;max-width:220px;height:4px;background:#2c3646;border-radius:99px;overflow:hidden}
+.score-track i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--accent));border-radius:99px}
 .score-row strong{font-family:monospace;color:var(--text);font-weight:500}
 .rec-why{margin-top:8px;font-size:11px;color:var(--accent)}
-@media(max-width:780px){.rec-list{padding:4px 16px 16px}.rec-card{grid-template-columns:38px 72px minmax(0,1fr);gap:12px}.rec-rank{font-size:20px}.result-head{padding:18px 16px 14px}.result-meta{gap:14px}}
-@media(max-width:540px){.rec-card{grid-template-columns:32px minmax(0,1fr)}.rec-poster{display:none}.rec-rank{font-size:18px}.rec-title h4{font-size:14px}}
+.rec-more{align-self:center;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:6px 13px;white-space:nowrap;transition:color .18s,border-color .18s,background .18s}
+.rec-more:hover{color:var(--ink);border-color:var(--accent);background:var(--accent)}
+@media(max-width:780px){.rec-list{padding:10px}.rec-card{grid-template-columns:66px minmax(0,1fr);gap:13px;padding:12px}.rec-more{display:none}.result-head{padding:18px 16px 16px}.result-meta{gap:14px}}
+@media(max-width:540px){.rec-card{grid-template-columns:58px minmax(0,1fr);gap:11px}.rec-title h4{font-size:14px}.score-track{max-width:none}.score-row{margin-top:9px}}
 </style>
