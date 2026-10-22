@@ -62,11 +62,21 @@ class AlgorithmNotImplemented(Exception):
 # An empty registry deliberately produces no movie list or model result.
 PROVIDERS: dict[Algorithm, Recommender] = {}
 
-# Content-based business recommender: genres + real business history.
+# Business recommenders implemented by the group; every one is fitted from the
+# approved business rating snapshot and serves pure inference at request time.
 from .student.content import ContentProvider
+from .student.popular import PopularProvider
+from .student.itemcf import ItemCFProvider
+from .student.cold_start import ColdStartProvider
 
 PROVIDERS[Algorithm.content] = ContentProvider(
     model_manifest_path=Path("models/business/content-v1/manifest.json"))
+PROVIDERS[Algorithm.popular] = PopularProvider(
+    model_manifest_path=Path("models/business/popular-v1/manifest.json"))
+PROVIDERS[Algorithm.itemcf] = ItemCFProvider(
+    model_manifest_path=Path("models/business/itemcf-v1/manifest.json"))
+PROVIDERS[Algorithm.cold_start] = ColdStartProvider(
+    model_manifest_path=Path("models/business/cold-start-v1/manifest.json"))
 
 
 def recommend(algorithm: Algorithm, request: RecommendationRequest) -> RecommendationResult:

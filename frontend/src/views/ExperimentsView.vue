@@ -10,19 +10,46 @@ import PageNav from '../components/PageNav.vue'
 import AlgorithmPanel from '../components/AlgorithmPanel.vue'
 
 const route = useRoute(), router = useRouter(), auth = useAuth()
-const source = ref('ml'), algorithm = ref('content'), selected = ref('')
+const source = ref('ml'), algorithm = ref('popular'), selected = ref('')
 const userPage = ref(1), users = useRemote<Page<HistoryUser>>(), ratings = useRemote<Page<Movie>>()
 const profileRatings = useRemote<Page<Movie>>()
+const appRatings = useRemote<Page<Movie>>(), appFavorites = useRemote<Page<Movie>>()
 const ratingPage = ref(1), available = ref<Algorithm[]>([]), registryError = ref<unknown>(null)
 const evaluationError = ref<unknown>(null), evaluationPending = ref(false), evaluationMissing = ref(false)
+const interests = ref<string[]>([]), genres = useRemote<{ items: string[] }>()
 
 const algorithmNames: Record<string, string> = {
   content: '内容推荐', itemcf: '协同过滤', als: '矩阵分解', popular: '热门推荐', cold_start: '冷启动',
 }
 const subject = computed(() => source.value === 'ml' ? (selected.value ? `ml:${selected.value}` : '') : auth.account?.subject_key || '')
-const endpoint = computed(() => !subject.value ? null : source.value === 'ml' ? `/demo/history-users/${selected.value}/recommendations/${algorithm.value}` : `/me/recommendations/${algorithm.value}`)
+const endpoint = computed(() => {
+  if (!subject.value) return null
+  if (source.value === 'ml') return `/demo/history-users/${selected.value}/recommendations/${algorithm.value}`
+  const base = `/me/recommendations/${algorithm.value}`
+  return algorithm.value === 'cold_start' && interests.value.length
+    ? `${base}?interests=${encodeURIComponent(interests.value.join(','))}`
+    : base
+})
 const apiPath = computed(() => endpoint.value ? `/api/v1${endpoint.value}` : '')
 const registered = computed(() => available.value.filter(item => item.status === 'registered').map(item => item.algorithm))
+const appRatingTotal = computed(() => appRatings.data.value?.total ?? 0)
+const appFavoriteTotal = computed(() => appFavorites.data.value?.total ?? 0)
+const zeroBehaviour = computed(() => appRatingTotal.value === 0 && appFavoriteTotal.value === 0)
+const interestHint = computed(() => interests.value.length ? `已选择 ${interests.value.length} 个兴趣类型` : '未选择兴趣：回退到热门排行')
+
+const gradeLabel = computed(() => algorithm.value === 'content' ? '内容匹配度' : algorithm.value === 'popular' ? '热度分' : algorithm.value === 'itemcf' ? '协同分' : algorithm.value === 'cold_start' ? '冷启动分' : '推荐分')
+const notes: Record<string, string> = {
+  content: '依据真实历史评分的类型偏好生成，已排除看过的电影。',
+  popular: '由真实历史评分的数量与平均分共同排序，与当前观众行为无关。',
+  itemcf: '由该观众评分过的电影在协同相似度图上扩散得到，已排除看过的电影。',
+  cold_start: '',
+  als: '该算法尚未接入。',
+}
+const resultNote = computed(() => algorithm.value === 'cold_start'
+  ? (interests.value.length
+    ? '冷启动基线叠加所选兴趣类型，按类型偏好重排。'
+    : '账号零评分零收藏，直接回退到真实热门排行。')
+  : notes[algorithm.value] || '')
 
 const profileTotal = computed(() => profileRatings.data.value?.total || 0)
 const profileAverage = computed(() => {
@@ -49,10 +76,21 @@ const genreProfile = computed(() => {
   return ranked.map(item => ({ ...item, percent: Math.max(6, Math.round(item.weight / max * 100)) }))
 })
 const topGenreNames = computed(() => genreProfile.value.map(item => item.name))
+const highlightGenres = computed(() => algorithm.value === 'cold_start' ? interests.value : topGenreNames.value)
 
 function selectAlgorithm(value: string) {
   algorithm.value = value
   updateUrl()
+}
+function selectSource(value: string) {
+  source.value = value
+  updateUrl()
+  if (value === 'app') void fetchAppActivity()
+}
+function toggleInterest(genre: string) {
+  interests.value = interests.value.includes(genre)
+    ? interests.value.filter(item => item !== genre)
+    : [...interests.value, genre].slice(0, 8)
 }
 function updateUrl() {
   void router.replace({ path: '/experiments', query: { source: source.value, algorithm: algorithm.value, ...(selected.value ? { user: selected.value } : {}) } })
@@ -69,6 +107,15 @@ function fetchProfile() {
   if (source.value !== 'ml' || !selected.value) return
   return profileRatings.load(async () => (await http.get<Page<Movie>>(`/demo/history-users/${encodeURIComponent(selected.value)}/ratings`, { params: { page: 1, per_page: 50 } })).data)
 }
+function fetchAppActivity() {
+  if (!auth.account) return
+  void appRatings.load(async () => (await http.get<Page<Movie>>('/me/ratings', { params: { page: 1, per_page: 1 } })).data)
+  void appFavorites.load(async () => (await http.get<Page<Movie>>('/me/favorites', { params: { page: 1, per_page: 1 } })).data)
+}
+function fetchGenres() {
+  if (genres.data.value) return
+  void genres.load(async () => (await http.get<{ items: string[] }>('/genres')).data)
+}
 async function fetchRegistry() {
   try { available.value = (await http.get<{ items: Algorithm[] }>('/experiments/algorithms')).data.items; registryError.value = null }
   catch (e) { registryError.value = e }
@@ -81,26 +128,29 @@ async function fetchEvaluation() {
 }
 watch(() => route.query, () => {
   source.value = route.query.source === 'app' ? 'app' : 'ml'
-  algorithm.value = typeof route.query.algorithm === 'string' && /^[a-z_]+$/.test(route.query.algorithm) ? route.query.algorithm : 'content'
+  algorithm.value = typeof route.query.algorithm === 'string' && /^[a-z_]+$/.test(route.query.algorithm) ? route.query.algorithm : 'popular'
   selected.value = typeof route.query.user === 'string' && /^[1-9][0-9]*$/.test(route.query.user) ? route.query.user : ''
 }, { immediate: true })
 watch(() => [selected.value, source.value], () => {
   ratingPage.value = 1
   void fetchRatings()
   void fetchProfile()
+  if (source.value === 'app') void fetchAppActivity()
 })
-void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatings(); void fetchProfile()
+watch(() => auth.account?.account_id, () => { if (source.value === 'app') void fetchAppActivity() }, { immediate: true })
+watch(() => algorithm.value, value => { if (value === 'cold_start') fetchGenres() })
+void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatings(); void fetchProfile(); void fetchAppActivity(); fetchGenres()
 </script>
 <template>
   <div class="page">
     <div class="lab-hero">
       <div class="lab-hero-copy">
-        <p class="eyebrow">RECOMMENDATION LAB · CONTENT ENGINE</p>
+        <p class="eyebrow">RECOMMENDATION LAB · MULTI-ENGINE</p>
         <h1>推荐实验室<span class="heading-dot">.</span></h1>
-        <p>以真实历史评分为画像，按电影类型计算内容相似度，实时生成可解释的 Top-10 推荐。</p>
+        <p>热门、冷启动与协同过滤共用同一套真实数据与接口契约，切换算法即可对比不同推荐逻辑。</p>
       </div>
       <div class="lab-hero-badges">
-        <div><span>算法</span><strong>Content</strong><small>genres · cosine</small></div>
+        <div><span>当前算法</span><strong>{{ algorithmNames[algorithm] || algorithm }}</strong><small>{{ algorithm }}</small></div>
         <div><span>数据</span><strong>Business</strong><small>history_ratings</small></div>
         <div><span>已接入</span><strong>{{ registered.length }} / {{ available.length || 5 }}</strong><small>registry</small></div>
       </div>
@@ -115,7 +165,7 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
       <aside class="lab-controls">
         <h2>实验设置</h2>
         <label for="subject-source">用户来源</label>
-        <el-select id="subject-source" v-model="source" @change="updateUrl">
+        <el-select id="subject-source" v-model="source" @change="selectSource">
           <el-option label="MovieLens 历史用户（只读）" value="ml" />
           <el-option label="当前注册账号" value="app" />
         </el-select>
@@ -142,6 +192,11 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
         <div v-else class="current-subject">
           <p>{{ auth.account?.login_name || '请先登录注册账号' }}</p>
           <span>{{ auth.account?.subject_key || '尚未登录' }}</span>
+          <div v-if="auth.account" class="app-behaviour">
+            <div><strong>{{ appRatingTotal }}</strong><span>评分</span></div>
+            <div><strong>{{ appFavoriteTotal }}</strong><span>收藏</span></div>
+            <div class="behaviour-state" :class="{ zero: zeroBehaviour }">{{ zeroBehaviour ? '零行为 · 冷启动' : '已有行为' }}</div>
+          </div>
           <RouterLink v-if="!auth.account" to="/login" class="text-link">前往登录 →</RouterLink>
         </div>
 
@@ -156,6 +211,17 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
           </button>
         </div>
         <StatePanel v-if="registryError" :error="registryError" @retry="fetchRegistry" />
+
+        <section v-if="algorithm === 'cold_start' && source === 'app'" class="interest-panel">
+          <div class="section-top"><h3>兴趣类型（选做）</h3><span class="small-label">COLD START</span></div>
+          <p class="form-hint">{{ interestHint }}，最多 8 个。</p>
+          <StatePanel :loading="genres.loading.value" :error="genres.error.value" @retry="fetchGenres">
+            <div class="genre-chips">
+              <button v-for="genre in genres.data.value?.items || []" :key="genre" type="button"
+                :class="{ active: interests.includes(genre) }" @click="toggleInterest(genre)">{{ genre }}</button>
+            </div>
+          </StatePanel>
+        </section>
 
         <div class="model-info">
           <span>当前对象</span><strong>{{ subject || '未选择' }}</strong>
@@ -193,7 +259,8 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
         </section>
 
         <AlgorithmPanel :key="`${subject}-${algorithm}`" :label="`${algorithmNames[algorithm] || algorithm} · 推荐结果`"
-          :endpoint="endpoint" :algorithm="algorithm" :subject="subject" :profile-genres="topGenreNames"
+          :endpoint="endpoint" :algorithm="algorithm" :subject="subject" :profile-genres="highlightGenres"
+          :score-label="gradeLabel" :note="resultNote" :interests="interests"
           :empty-subject="source === 'ml' ? '请选择历史用户' : '登录后体验'" />
 
         <section v-if="source === 'ml'" class="history-panel">
@@ -254,6 +321,18 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
 .algorithm-state{grid-column:2;grid-row:1/3;align-self:center;font-size:10px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:2px 8px;white-space:nowrap}
 .algorithm-state.ready{color:var(--accent);border-color:#dfb76c55}
 .model-info .mono{font-family:monospace;font-size:11px;line-height:1.5}
+.app-behaviour{display:flex;align-items:center;gap:14px;margin-top:10px;flex-wrap:wrap}
+.app-behaviour div{display:flex;align-items:baseline;gap:5px}
+.app-behaviour strong{font-family:Georgia,serif;font-size:20px;color:var(--accent)}
+.app-behaviour span{font-size:10px;color:var(--muted)}
+.app-behaviour .behaviour-state{font-size:10px;border:1px solid var(--border);border-radius:99px;padding:3px 10px;color:var(--muted)}
+.app-behaviour .behaviour-state.zero{color:var(--accent);border-color:#dfb76c66;background:var(--accent-tint)}
+.interest-panel{border:1px solid var(--border);border-radius:8px;padding:14px 14px 16px;background:#182322;margin-top:4px}
+.interest-panel h3{margin:0;font-size:13px}
+.genre-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.genre-chips button{border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:99px;padding:4px 10px;font-size:11px;transition:border-color .18s,color .18s}
+.genre-chips button:hover{color:var(--text);border-color:#dfb76c66}
+.genre-chips button.active{color:var(--accent);border-color:var(--accent);background:var(--accent-tint)}
 .profile-panel{border:1px solid var(--border);background:var(--surface);border-radius:8px;overflow:hidden}
 .profile-body{display:grid;grid-template-columns:200px minmax(0,1fr);gap:28px;padding:22px 24px}
 .profile-stats{display:flex;flex-direction:column;gap:14px;border-right:1px solid var(--border);padding-right:22px}

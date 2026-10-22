@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from recommender.contracts import Algorithm, AlgorithmNotImplemented, RecommendationRequest, RecommendationResult, PROVIDERS, recommend
 from recommender.data import ContractError
+from recommender.student.cold_start import ColdStartRequest
 from .config import DATASET, SPLIT
 from .errors import APIError
 from .schemas import IdPath, Input, identifier
@@ -16,10 +17,13 @@ router = APIRouter(tags=["学生算法预留边界"])
 
 class RecommendationQuery(Input):
     limit: int = Field(default=10, ge=1, le=50)
+    interests: str | None = Field(default=None, max_length=200)
 
 
-def invoke(algorithm: Algorithm, kind: str, uid: int, limit: int):
+def invoke(algorithm: Algorithm, kind: str, uid: int, limit: int, interests: tuple[str, ...] = ()):
     request = RecommendationRequest(kind, uid, limit, "business", DATASET, SPLIT)
+    if algorithm == Algorithm.cold_start and interests:
+        request = ColdStartRequest(kind, uid, limit, "business", DATASET, SPLIT, tuple(interests))
     try:
         return recommend(algorithm, request)
     except AlgorithmNotImplemented:
@@ -45,7 +49,10 @@ def evaluations():
 
 @router.get("/me/recommendations/{algorithm}", response_model=RecommendationResult)
 def my_recommendations(algorithm: Algorithm, actor: ActorDependency, query: Annotated[RecommendationQuery, Query()]):
-    return invoke(algorithm, "app", actor.account_id, query.limit)
+    selected = tuple(part.strip() for part in (query.interests or "").split(",") if part.strip())
+    if selected and algorithm != Algorithm.cold_start:
+        raise APIError(422, "INVALID_INTERESTS", "只有冷启动算法支持兴趣类型")
+    return invoke(algorithm, "app", actor.account_id, query.limit, selected)
 
 
 @router.get("/demo/history-users/{ml_user_id}/recommendations/{algorithm}", response_model=RecommendationResult)

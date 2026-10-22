@@ -13,7 +13,13 @@ const props = withDefaults(defineProps<{
   subject?: string
   profileGenres?: string[]
   emptySubject?: string
-}>(), { algorithm: '', subject: '', profileGenres: () => [], emptySubject: '登录后体验' })
+  scoreLabel?: string
+  note?: string
+  interests?: string[]
+}>(), {
+  algorithm: '', subject: '', profileGenres: () => [], emptySubject: '登录后体验',
+  scoreLabel: '推荐分', note: '', interests: () => [],
+})
 
 const loading = ref(false), error = ref<unknown>(null), unavailable = ref(false)
 const result = ref<AlgorithmResult | null>(null)
@@ -25,6 +31,19 @@ const algorithmNames: Record<string, string> = {
   content: '内容推荐', itemcf: '协同过滤', als: '矩阵分解', popular: '热门推荐', cold_start: '冷启动',
 }
 const algorithmLabel = computed(() => algorithmNames[props.algorithm] ? `${algorithmNames[props.algorithm]} · ${props.algorithm}` : props.algorithm)
+const engineLabels: Record<string, string> = {
+  content: 'CONTENT-BASED ENGINE', popular: 'POPULARITY ENGINE',
+  itemcf: 'ITEM-BASED COLLABORATIVE FILTERING', cold_start: 'COLD-START ENGINE',
+}
+const engineLabel = computed(() => engineLabels[props.algorithm] || 'RECOMMENDATION ENGINE')
+const highlightEnabled = computed(() => ['content', 'cold_start'].includes(props.algorithm))
+const emptyTexts: Record<string, string> = {
+  itemcf: '这位观众还没有正评分的电影，ItemCF 无法形成协同信号。',
+  cold_start: '当前没有可用候选电影。',
+  popular: '当前没有可用评分统计。',
+  content: '这位观众的历史不足以形成内容画像，本次没有推荐结果。',
+}
+const emptyResultText = computed(() => emptyTexts[props.algorithm] || '本次没有推荐结果。')
 
 const rows = computed(() => (result.value?.items || []).map(item => ({
   ...item,
@@ -77,7 +96,7 @@ watch(() => props.endpoint, load, { immediate: true })
   <section class="algorithm-panel" :aria-label="label">
     <div class="section-top">
       <h3>{{ label }}</h3>
-      <span class="small-label">CONTENT-BASED ENGINE</span>
+      <span class="small-label">{{ engineLabel }}</span>
     </div>
     <StatePanel :loading="loading" :error="error" @retry="load">
       <div v-if="!endpoint || unavailable" class="algorithm-empty" role="status">
@@ -94,12 +113,13 @@ watch(() => props.endpoint, load, { immediate: true })
           <div>
             <span class="status-pill">{{ algorithmLabel }}</span>
             <h3>{{ subject || '当前观众' }} · Top {{ result.items.length }}</h3>
-            <p v-if="!result.items.length">这位观众的历史不足以形成内容画像，本次没有推荐结果。</p>
-            <p v-else>依据真实历史评分的类型偏好生成，已排除看过的电影。</p>
+            <p v-if="!result.items.length">{{ emptyResultText }}</p>
+            <p v-else>{{ note }}</p>
           </div>
           <dl class="result-meta">
             <div><dt>模型版本</dt><dd>{{ result.model_version }}</dd></div>
             <div><dt>运行模式</dt><dd>{{ result.runtime_mode }}</dd></div>
+            <div v-if="algorithm === 'cold_start'"><dt>兴趣</dt><dd>{{ interests.length ? interests.join(' / ') : '未选择 · 热门回退' }}</dd></div>
             <div><dt>生成时间</dt><dd>{{ generated }}</dd></div>
           </dl>
         </header>
@@ -117,15 +137,15 @@ watch(() => props.endpoint, load, { immediate: true })
                 <span class="rec-year">{{ row.movie?.release_year || '年份未收录' }}</span>
               </div>
               <div class="rec-genres">
-                <span v-for="genre in row.movie?.genres || []" :key="genre" :class="{ match: profileGenres.includes(genre) }">{{ genre }}</span>
+                <span v-for="genre in row.movie?.genres || []" :key="genre" :class="{ match: highlightEnabled && profileGenres.includes(genre) }">{{ genre }}</span>
                 <span v-if="!row.movie" class="muted">电影 #{{ row.movie_id }}</span>
               </div>
               <div class="score-row">
-                <span>内容匹配度</span>
-                <div class="score-track" role="img" :aria-label="`匹配度 ${row.percent}%`"><i :style="{ width: row.percent + '%' }" /></div>
+                <span>{{ scoreLabel }}</span>
+                <div class="score-track" role="img" :aria-label="`${scoreLabel} ${row.percent}%`"><i :style="{ width: row.percent + '%' }" /></div>
                 <strong>{{ row.score === null ? '—' : row.score.toFixed(3) }}</strong>
               </div>
-              <p v-if="row.matched.length" class="rec-why">与观众偏好类型重合：{{ row.matched.join(' / ') }}</p>
+              <p v-if="highlightEnabled && row.matched.length" class="rec-why">{{ algorithm === 'cold_start' ? '命中所选兴趣' : '与观众偏好类型重合' }}：{{ row.matched.join(' / ') }}</p>
             </div>
           </li>
         </ol>
