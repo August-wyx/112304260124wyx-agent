@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../stores/auth'
@@ -16,7 +16,13 @@ const profileRatings = useRemote<Page<Movie>>()
 const appRatings = useRemote<Page<Movie>>(), appFavorites = useRemote<Page<Movie>>()
 const ratingPage = ref(1), available = ref<Algorithm[]>([]), registryError = ref<unknown>(null)
 const evaluationError = ref<unknown>(null), evaluationPending = ref(false), evaluationMissing = ref(false)
-const interests = ref<string[]>([]), genres = useRemote<{ items: string[] }>()
+const evaluation = ref<EvaluationSummary | null>(null), interests = ref<string[]>([]), genres = useRemote<{ items: string[] }>()
+
+type EvaluationMetric = { algorithm: string; model_version: string; precision_at_10: number; recall_at_10: number }
+type EvaluationSummary = {
+  status: string; partition: string; user_count: number; generated_at: string
+  positive_threshold: number; top_k: number; task_sha256: string; algorithms: EvaluationMetric[]
+}
 
 const algorithmNames: Record<string, string> = {
   content: '内容推荐', itemcf: '协同过滤', als: '矩阵分解', popular: '热门推荐', cold_start: '冷启动',
@@ -43,7 +49,7 @@ const notes: Record<string, string> = {
   popular: '由真实历史评分的数量与平均分共同排序，与当前观众行为无关。',
   itemcf: '由该观众评分过的电影在协同相似度图上扩散得到，已排除看过的电影。',
   cold_start: '',
-  als: '该算法尚未接入。',
+  als: '由 Spark MLlib ALS 在真实评分矩阵上学习隐因子，按用户向量与电影向量的内积排序，已排除看过的电影。',
 }
 const resultNote = computed(() => algorithm.value === 'cold_start'
   ? (interests.value.length
@@ -122,10 +128,13 @@ async function fetchRegistry() {
 }
 async function fetchEvaluation() {
   evaluationPending.value = true; evaluationError.value = null; evaluationMissing.value = false
-  try { await http.get('/experiments/evaluations') }
-  catch (e) { if (e instanceof ApiError && e.status === 501 && e.code === 'EVALUATION_NOT_IMPLEMENTED') evaluationMissing.value = true; else evaluationError.value = e }
+  try { evaluation.value = (await http.get<EvaluationSummary>('/experiments/evaluations')).data }
+  catch (e) { evaluation.value = null; if (e instanceof ApiError && e.status === 501 && e.code === 'EVALUATION_NOT_IMPLEMENTED') evaluationMissing.value = true; else evaluationError.value = e }
   finally { evaluationPending.value = false }
 }
+const percent = (value: number) => `${(value * 100).toFixed(2)}%`
+const bestPrecision = computed(() => evaluation.value?.algorithms?.reduce<EvaluationMetric | null>(
+  (best, item) => !best || item.precision_at_10 > best.precision_at_10 ? item : best, null)?.algorithm || '')
 watch(() => route.query, () => {
   source.value = route.query.source === 'app' ? 'app' : 'ml'
   algorithm.value = typeof route.query.algorithm === 'string' && /^[a-z_]+$/.test(route.query.algorithm) ? route.query.algorithm : 'popular'
@@ -147,7 +156,7 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
       <div class="lab-hero-copy">
         <p class="eyebrow">RECOMMENDATION LAB · MULTI-ENGINE</p>
         <h1>推荐实验室<span class="heading-dot">.</span></h1>
-        <p>热门、冷启动与协同过滤共用同一套真实数据与接口契约，切换算法即可对比不同推荐逻辑。</p>
+        <p>热门、内容、协同过滤、矩阵分解与冷启动共用同一套真实数据与接口契约，切换算法即可对比不同推荐逻辑。</p>
       </div>
       <div class="lab-hero-badges">
         <div><span>当前算法</span><strong>{{ algorithmNames[algorithm] || algorithm }}</strong><small>{{ algorithm }}</small></div>
@@ -289,9 +298,30 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
         <section class="evaluation-panel">
           <div class="section-top"><h2>离线评价</h2><span class="small-label">PRECISION@10 / RECALL@10</span></div>
           <StatePanel :loading="evaluationPending" :error="evaluationError" @retry="fetchEvaluation">
-            <div class="evaluation-empty">
-              <span class="status-pill">{{ evaluationMissing ? '尚未实现' : '等待接入' }}</span>
-              <p>暂无评价指标，等待离线评价程序接入。</p>
+            <div v-if="evaluation" class="evaluation-body">
+              <div class="evaluation-meta">
+                <span class="status-pill">validation · {{ evaluation.user_count }} 位固定用户</span>
+                <span class="status-pill">正反馈 ≥ {{ evaluation.positive_threshold }} · Top {{ evaluation.top_k }}</span>
+                <small>训练仅用 evaluation/train.csv · task {{ evaluation.task_sha256.slice(0, 12) }}…</small>
+              </div>
+              <div class="table-scroll">
+                <table class="evaluation-table">
+                  <thead><tr><th>算法</th><th>模型版本</th><th>Precision@10</th><th>Recall@10</th></tr></thead>
+                  <tbody>
+                    <tr v-for="item in evaluation.algorithms" :key="item.algorithm" :class="{ best: item.algorithm === bestPrecision }">
+                      <td><strong>{{ algorithmNames[item.algorithm] || item.algorithm }}</strong> <small>{{ item.algorithm }}</small></td>
+                      <td class="mono">{{ item.model_version }}</td>
+                      <td>{{ percent(item.precision_at_10) }}</td>
+                      <td>{{ percent(item.recall_at_10) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="form-hint">指标由 validation 分区逐用户真实预测的命中数计算后宏平均，非静态数值。</p>
+            </div>
+            <div v-else class="evaluation-empty">
+              <span class="status-pill">{{ evaluationMissing ? '尚未生成' : '等待接入' }}</span>
+              <p>暂无评价指标，请先运行离线评价程序。</p>
               <small>训练仅允许使用固定 train；此页面不连接 evaluation 数据库。</small>
             </div>
           </StatePanel>
@@ -344,6 +374,19 @@ void fetchUsers(); void fetchRegistry(); void fetchEvaluation(); void fetchRatin
 .genre-line small{color:var(--muted);font-size:10px;text-align:right}
 .genre-track{height:5px;background:#31413e;border-radius:99px;overflow:hidden}
 .genre-track i{display:block;height:100%;background:linear-gradient(90deg,#6f5a33,var(--accent));border-radius:99px}
+.evaluation-body{padding:20px 24px}
+.evaluation-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.evaluation-meta small{font-size:11px;color:var(--muted);font-family:monospace}
+.evaluation-table{width:100%;border-collapse:collapse;font-size:13px}
+.evaluation-table th{text-align:left;font-size:10px;letter-spacing:.12em;color:var(--muted);font-weight:500;padding:8px 12px;border-bottom:1px solid var(--border)}
+.evaluation-table td{padding:12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.evaluation-table td small{color:var(--muted);font-family:monospace;font-size:10px;margin-left:6px}
+.evaluation-table td.mono{font-family:monospace;font-size:11px;color:var(--muted)}
+.evaluation-table tr.best td{background:var(--accent-tint)}
+.evaluation-table tr.best td:nth-child(3),.evaluation-table tr.best td:nth-child(4){color:var(--accent);font-weight:600}
+.evaluation-empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:28px;text-align:center;color:var(--muted)}
+.evaluation-empty p{margin:0;font-size:13px}
+.evaluation-empty small{font-size:11px}
 @media(max-width:1100px){.lab-hero{padding:28px}.profile-body{grid-template-columns:160px minmax(0,1fr);gap:20px}.profile-stats{padding-right:16px}}
 @media(max-width:780px){.lab-hero{align-items:start}.lab-hero-badges{width:100%}.profile-body{grid-template-columns:1fr}.profile-stats{flex-direction:row;border-right:0;border-bottom:1px solid var(--border);padding:0 0 16px;gap:32px}}
 </style>

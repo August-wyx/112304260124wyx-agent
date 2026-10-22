@@ -43,8 +43,10 @@ def algorithms():
 
 @router.get("/experiments/evaluations")
 def evaluations():
-    raise APIError(501, "EVALUATION_NOT_IMPLEMENTED", "评价流程留给学生实现；业务API不连接evaluation数据库", {
-        "status": "not_implemented", "metrics": None, "dataset_version": DATASET, "split_version": SPLIT})
+    # The business API never imports an evaluation provider or opens evaluation
+    # data; it only returns the summary recorded by the isolated offline run.
+    from .evaluation_results import SUMMARY
+    return SUMMARY
 
 
 @router.get("/me/recommendations/{algorithm}", response_model=RecommendationResult)

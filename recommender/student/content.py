@@ -30,13 +30,17 @@ SCORE_DECIMALS = 6
 class ContentProvider:
     """Genre-profile provider; the API validates the sidecar before each call."""
 
-    def __init__(self, model_manifest_path: str | Path):
+    def __init__(self, model_manifest_path: str | Path, history_loader=None):
         self.model_manifest_path = Path(model_manifest_path)
+        # Business instances read the live feedback table; the offline evaluation
+        # entry injects a loader backed by evaluation/train.csv instead.
+        self.history_loader = history_loader
 
     def recommend(self, request: RecommendationRequest) -> RecommendationResult:
-        require(request.runtime_mode == "business", "业务内容推荐不支持评价模式", "DATA_MODE_INVALID")
+        require(self.history_loader is not None or request.runtime_mode == "business",
+                "业务内容推荐不支持评价模式", "DATA_MODE_INVALID")
         model = _load_model(self.model_manifest_path)
-        history = read_history(request)
+        history = (self.history_loader or read_history)(request)
 
         profile: dict[str, float] = {}
         watched: set[str] = set()
@@ -86,7 +90,7 @@ class ContentProvider:
             model_version=model["model_version"],
             dataset_version=request.dataset_version,
             split_version=request.split_version,
-            runtime_mode="business",
+            runtime_mode=request.runtime_mode,
             generated_at=datetime.now(timezone.utc),
             items=items,
         )

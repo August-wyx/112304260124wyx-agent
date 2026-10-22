@@ -34,8 +34,8 @@ def _load_model(manifest_path: str) -> dict:
         artifact = json.loads((manifest_path.parent / "item-neighbours.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise ContractError("MODEL_BINDING_INVALID", "ItemCF 模型工件无法读取") from None
-    require(manifest.get("algorithm") == "itemcf" and manifest.get("runtime_mode") == "business",
-            "ItemCF 模型清单与业务模式不符", "MODEL_BINDING_INVALID")
+    require(manifest.get("algorithm") == "itemcf",
+            "ItemCF 模型清单标识不符", "MODEL_BINDING_INVALID")
     try:
         neighbours = {str(key): tuple((str(pair[0]), float(pair[1])) for pair in value)
                       for key, value in artifact["items"].items()}
@@ -46,13 +46,17 @@ def _load_model(manifest_path: str) -> dict:
 
 
 class ItemCFProvider:
-    def __init__(self, model_manifest_path: str | Path):
+    def __init__(self, model_manifest_path: str | Path, history_loader=None):
         self.model_manifest_path = Path(model_manifest_path)
+        # Business instances read the live feedback table; the offline evaluation
+        # entry injects a loader backed by evaluation/train.csv instead.
+        self.history_loader = history_loader
 
     def recommend(self, request: RecommendationRequest) -> RecommendationResult:
-        require(request.runtime_mode == "business", "ItemCF 不支持评价模式", "DATA_MODE_INVALID")
+        require(self.history_loader is not None or request.runtime_mode == "business",
+                "ItemCF 不支持评价模式", "DATA_MODE_INVALID")
         model = _load_model(str(self.model_manifest_path))
-        history = read_history(request)
+        history = (self.history_loader or read_history)(request)
         watched = {feedback.movie_id for feedback in history.ratings}
         scores: dict[str, float] = {}
         for feedback in history.ratings:

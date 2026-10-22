@@ -68,6 +68,7 @@ from .student.content import ContentProvider
 from .student.popular import PopularProvider
 from .student.itemcf import ItemCFProvider
 from .student.cold_start import ColdStartProvider
+from .student.als import ALSProvider
 
 PROVIDERS[Algorithm.content] = ContentProvider(
     model_manifest_path=Path("models/business/content-v1/manifest.json"))
@@ -77,6 +78,8 @@ PROVIDERS[Algorithm.itemcf] = ItemCFProvider(
     model_manifest_path=Path("models/business/itemcf-v1/manifest.json"))
 PROVIDERS[Algorithm.cold_start] = ColdStartProvider(
     model_manifest_path=Path("models/business/cold-start-v1/manifest.json"))
+PROVIDERS[Algorithm.als] = ALSProvider(
+    model_manifest_path=Path("models/business/als-v1/manifest.json"))
 
 
 def recommend(algorithm: Algorithm, request: RecommendationRequest) -> RecommendationResult:
