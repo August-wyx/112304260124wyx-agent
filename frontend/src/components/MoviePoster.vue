@@ -9,11 +9,21 @@ const props = withDefaults(defineProps<{
   genres?: string[] | null
 }>(), { path: null, movieId: null, year: null, genres: () => [] })
 
-const failed = ref(false)
-watch(() => props.path, () => { failed.value = false })
+const stage = ref(0)
+watch(() => [props.path, props.movieId], () => { stage.value = 0 })
 
-const src = computed(() => props.path && /^\/[a-zA-Z0-9._-]+\.(jpg|png|webp)$/.test(props.path)
+const remoteSrc = computed(() => props.path && /^\/[a-zA-Z0-9._-]+\.(jpg|png|webp)$/.test(props.path)
   ? `https://image.tmdb.org/t/p/w342${props.path}` : null)
+// Real posters fetched for the popular catalogue prefix live in frontend/public.
+const localSrc = computed(() => props.movieId ? `/posters/${props.movieId}.jpg` : null)
+const src = computed(() => {
+  if (stage.value === 0 && localSrc.value) return localSrc.value
+  if (stage.value <= 1 && remoteSrc.value) return remoteSrc.value
+  return null
+})
+function onError() {
+  stage.value = stage.value === 0 && remoteSrc.value ? 1 : 2
+}
 
 const cleanTitle = computed(() => props.title.replace(/\s*\(\d{4}\)\s*$/, ''))
 const hash = computed(() => {
@@ -37,7 +47,7 @@ const palette = computed(() => {
 </script>
 <template>
   <div class="movie-poster" :style="palette">
-    <img v-if="src && !failed" :src="src" :alt="title + '海报'" loading="lazy" @error="failed = true" />
+    <img v-if="src" :src="src" :alt="title + '海报'" loading="lazy" @error="onError" />
     <div v-else class="poster-placeholder" role="img" :aria-label="title + '：本地档案封面'">
       <span class="poster-grain" aria-hidden="true" />
       <span class="poster-eyebrow">CINELAB ARCHIVE</span>
