@@ -127,7 +127,8 @@ watch(() => props.endpoint, load, { immediate: true })
           <li v-for="row in rows" :key="row.movie_id" class="rec-card">
             <span class="rec-rank">{{ String(row.rank).padStart(2, '0') }}</span>
             <RouterLink class="rec-poster" :to="`/movies/${row.movie_id}`" :aria-label="`查看 ${row.movie?.movielens_title || row.movie_id} 详情`">
-              <MoviePoster :path="row.movie?.poster_path" :title="row.movie?.movielens_title || `电影 ${row.movie_id}`" />
+              <MoviePoster :path="row.movie?.poster_path" :title="row.movie?.movielens_title || `电影 ${row.movie_id}`"
+                :movie-id="row.movie_id" :year="row.movie?.release_year" :genres="row.movie?.genres" />
             </RouterLink>
             <div class="rec-body">
               <div class="rec-title">
