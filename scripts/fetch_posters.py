@@ -73,6 +73,8 @@ def title_variants(title: str) -> list[str]:
 
     add(title)
     add(re.sub(r"\([^)]*\)", "", title))
+    for alias in re.findall(r"\(([^)]*)\)", title):
+        add(alias)
     for base in list(variants):
         for separator in (":", " - "):
             add(base.split(separator)[-1])
