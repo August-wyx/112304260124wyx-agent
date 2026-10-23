@@ -1,6 +1,6 @@
-﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { Connection } from '@element-plus/icons-vue'
+import { Connection, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import http, { ApiError } from '../api'
 import StatePanel from './StatePanel.vue'
 import MoviePoster from './MoviePoster.vue'
@@ -25,6 +25,9 @@ const props = withDefaults(defineProps<{
 const loading = ref(false), error = ref<unknown>(null), unavailable = ref(false)
 const result = ref<AlgorithmResult | null>(null)
 const movies = ref<Record<string, Movie>>({})
+const explainData = ref<{ items: any[]; algorithm: string; model_version: string } | null>(null)
+const explainLoading = ref(false)
+const showExplain = ref(false)
 let run = 0
 onScopeDispose(() => { run++ })
 
@@ -68,6 +71,38 @@ function scorePercent(score: number | null) {
 function matchedGenres(genres: string[]) {
   const profile = new Set(props.profileGenres.map(genre => genre.toLowerCase()))
   return genres.filter(genre => profile.has(genre.toLowerCase()))
+}
+
+const explainEndpoint = computed(() => {
+  if (!props.endpoint) return null
+  // endpoint is like /demo/history-users/14/recommendations/itemcf or /me/recommendations/itemcf
+  return `${props.endpoint}/explain`
+})
+
+const explainRows = computed(() => explainData.value?.items || [])
+
+async function openExplain() {
+  if (!explainEndpoint.value) return
+  showExplain.value = true
+  explainLoading.value = true
+  try {
+    const response = await http.get(explainEndpoint.value)
+    explainData.value = response.data as any
+  } catch (e) {
+    explainData.value = { items: [], algorithm: props.algorithm, model_version: '' }
+  } finally {
+    explainLoading.value = false
+  }
+}
+
+function evidencePreview(evidence: any): string {
+  if (!evidence) return ''
+  if (evidence.similarity !== undefined) return `相似度 ${(evidence.similarity * 100).toFixed(0)}%`
+  if (evidence.cosine_fit !== undefined) return `匹配度 ${(evidence.cosine_fit * 100).toFixed(0)}%`
+  if (evidence.rating_count !== undefined) return `${evidence.rating_count} 人评分 · 均分 ${evidence.avg_rating}`
+  if (evidence.score !== undefined) return `匹配分 ${evidence.score}`
+  if (evidence.watched_count !== undefined) return `历史 ${evidence.watched_count} 部`
+  return ''
 }
 
 async function attachMovies(items: AlgorithmResult['items']) {
@@ -127,6 +162,11 @@ watch(() => props.endpoint, load, { immediate: true })
             <div v-if="algorithm === 'cold_start'"><dt>兴趣</dt><dd>{{ interests.length ? interests.map(genreLabel).join(' / ') : '未选择 · 热门回退' }}</dd></div>
             <div><dt>生成时间</dt><dd>{{ generated }}</dd></div>
           </dl>
+          <button v-if="result.items.length" class="explain-launch" @click="openExplain" :disabled="explainLoading">
+            <el-icon v-if="!explainLoading"><ChatDotRound /></el-icon>
+            <el-icon v-else class="spin"><Loading /></el-icon>
+            <span>{{ explainLoading ? '生成解释中…' : '为什么推荐' }}</span>
+          </button>
         </header>
         <ol v-if="result.items.length" class="rec-list">
           <li v-for="row in rows" :key="row.movie_id" class="rec-card">
@@ -160,6 +200,39 @@ watch(() => props.endpoint, load, { immediate: true })
         </ol>
       </div>
     </StatePanel>
+
+    <!-- Explanation Dialog -->
+    <el-dialog v-model="showExplain" class="explain-dialog" width="640px" :close-on-click-modal="true"
+      :show-close="true" align-center destroy-on-close>
+      <template #header>
+        <div class="explain-header">
+          <span class="explain-title">为什么推荐这 {{ explainRows.length }} 部？</span>
+          <span class="explain-sub">{{ explainData?.algorithm }} · {{ explainData?.model_version || '—' }}</span>
+        </div>
+      </template>
+      <div class="explain-body" v-if="explainLoading">
+        <div class="explain-loading"><el-icon class="spin"><Loading /></el-icon><span>正在为每部电影生成可核验的推荐理由…</span></div>
+      </div>
+      <div class="explain-body" v-else>
+        <div v-if="!explainRows.length" class="explain-empty">当前没有解释数据。</div>
+        <article v-for="item in explainRows" :key="item.movie_id" class="explain-item">
+          <header class="explain-item-head">
+            <span class="explain-rank">#{{ item.rank }}</span>
+            <h4>{{ item.title }}</h4>
+            <RouterLink class="explain-detail" :to="`/movies/${item.movie_id}`" @click="showExplain = false">详情 →</RouterLink>
+          </header>
+          <p class="explain-genres">{{ item.genres?.join(' / ') || '—' }}</p>
+          <ul class="explain-reasons">
+            <li v-for="(reason, i) in item.reasons" :key="i" class="explain-reason">
+              <span class="reason-type">{{ reason.type === 'itemcf_neighbor' ? '协同过滤依据' : reason.type === 'content_genre' ? '类型匹配依据' : reason.type === 'popularity' ? '热门依据' : reason.type === 'als_latent' ? '隐因子依据' : reason.type === 'coldstart_fallback' ? '冷启动回退' : '综合依据' }}</span>
+              <span class="reason-text">{{ reason.text }}</span>
+              <span class="reason-evidence" v-if="evidencePreview(reason.evidence)">{{ evidencePreview(reason.evidence) }}</span>
+            </li>
+          </ul>
+        </article>
+        <p class="explain-foot">每条理由附带原始证据，可回溯到模型工件或用户历史评分。</p>
+      </div>
+    </el-dialog>
   </section>
 </template>
 <style scoped>
@@ -192,6 +265,35 @@ watch(() => props.endpoint, load, { immediate: true })
 .rec-why{margin-top:8px;font-size:11px;color:var(--accent)}
 .rec-more{align-self:center;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:6px 13px;white-space:nowrap;transition:color .18s,border-color .18s,background .18s}
 .rec-more:hover{color:var(--ink);border-color:var(--accent);background:var(--accent)}
+.explain-launch{align-self:center;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--gold);border:1px solid var(--gold);border-radius:99px;padding:7px 16px;background:transparent;cursor:pointer;transition:color .18s,background .18s,border-color .18s}
+.explain-launch:hover{color:var(--ink);background:var(--gold);border-color:var(--gold)}
+.explain-launch:disabled{opacity:.5;cursor:default}
+.explain-launch .spin{animation:spin 1s linear infinite}
+.explain-dialog :deep(.el-dialog){background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.explain-dialog :deep(.el-dialog__header){border-bottom:1px solid var(--border);padding:18px 22px;margin:0}
+.explain-dialog :deep(.el-dialog__body){padding:0;max-height:72vh;overflow-y:auto}
+.explain-header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.explain-title{font-family:var(--font-display);font-size:18px;color:var(--text);letter-spacing:.01em}
+.explain-sub{font-size:11px;color:var(--muted);font-family:monospace}
+.explain-body{padding:22px}
+.explain-loading{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px;justify-content:center;padding:40px}
+.explain-loading .spin{font-size:20px;color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.explain-empty{text-align:center;color:var(--muted);padding:40px}
+.explain-item{margin-bottom:22px;padding-bottom:22px;border-bottom:1px dashed var(--border)}
+.explain-item:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+.explain-item-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
+.explain-rank{font-family:var(--font-display);color:var(--gold);font-size:14px;font-weight:700}
+.explain-item-head h4{margin:0;font-family:var(--font-display);font-size:16px;color:var(--text);font-weight:600;flex:1}
+.explain-detail{font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap}
+.explain-detail:hover{text-decoration:underline}
+.explain-genres{font-size:11px;color:var(--muted);margin:0 0 10px}
+.explain-reasons{list-style:none;margin:0;padding:0}
+.explain-reason{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;align-items:start}
+.reason-type{font-size:10px;letter-spacing:.04em;color:var(--gold);font-family:monospace;white-space:nowrap;padding-top:2px}
+.reason-text{font-size:13px;color:var(--text);line-height:1.65}
+.reason-evidence{font-size:10px;color:var(--accent);font-family:monospace;white-space:nowrap;align-self:center;padding:3px 8px;border:1px solid var(--accent);border-radius:99px;background:var(--accent-tint)}
+.explain-foot{margin:18px 0 0;font-size:11px;color:var(--muted);text-align:center}
 @media(max-width:780px){.rec-list{padding:10px}.rec-card{grid-template-columns:66px minmax(0,1fr);gap:13px;padding:12px}.rec-more{display:none}.result-head{padding:18px 16px 16px}.result-meta{gap:14px}}
 @media(max-width:540px){.rec-card{grid-template-columns:58px minmax(0,1fr);gap:11px}.rec-title h4{font-size:14px}.score-track{max-width:none}.score-row{margin-top:9px}}
 </style>

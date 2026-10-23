@@ -7,6 +7,7 @@ from sqlalchemy import text
 from recommender.contracts import Algorithm, AlgorithmNotImplemented, RecommendationRequest, RecommendationResult, PROVIDERS, recommend
 from recommender.data import ContractError
 from recommender.student.cold_start import ColdStartRequest
+from recommender.student.explain import explain as generate_explanations
 from .config import DATASET, SPLIT
 from .errors import APIError
 from .schemas import IdPath, Input, identifier
@@ -65,3 +66,44 @@ def history_recommendations(ml_user_id: IdPath, algorithm: Algorithm, request: R
         if conn.execute(text("SELECT ml_user_id FROM history_users WHERE ml_user_id=:id"), {"id": uid}).first() is None:
             raise APIError(404, "HISTORY_USER_NOT_FOUND", "历史匿名用户不存在")
     return invoke(algorithm, "ml", uid, query.limit)
+
+
+@router.get("/me/recommendations/{algorithm}/explain")
+def my_explanations(algorithm: Algorithm, actor: ActorDependency, query: Annotated[RecommendationQuery, Query()]):
+    """Return verifiable personalized explanations for each recommended movie.
+
+    Internally runs the real recommendation first (bound to the same request
+    contract), then generates an explanation grounded in the actual model
+    evidence — ItemCF neighbour similarities, Content genre fits, ALS scores,
+    Popular popularity counts, and the viewer's real history ratings.
+    """
+    selected = tuple(part.strip() for part in (query.interests or "").split(",") if part.strip())
+    result = invoke(algorithm, "app", actor.account_id, query.limit, selected)
+    request = RecommendationRequest("app", actor.account_id, query.limit, "business", DATASET, SPLIT)
+    try:
+        explanations = generate_explanations(request, algorithm, [item.model_dump() for item in result.items])
+    except ContractError as exc:
+        raise APIError(503 if exc.code in {"MODEL_BINDING_INVALID", "DATA_IDENTITY_INVALID"} else 500,
+            exc.code, str(exc)) from None
+    return {"algorithm": algorithm.value, "model_version": result.model_version,
+            "generated_at": result.generated_at.isoformat(), "limit": query.limit,
+            "total": len(explanations), "items": explanations}
+
+
+@router.get("/demo/history-users/{ml_user_id}/recommendations/{algorithm}/explain")
+def history_explanations(ml_user_id: IdPath, algorithm: Algorithm, request: Request,
+                         query: Annotated[RecommendationQuery, Query()]):
+    uid = identifier(ml_user_id)
+    with request.app.state.db.connection() as conn:
+        if conn.execute(text("SELECT ml_user_id FROM history_users WHERE ml_user_id=:id"), {"id": uid}).first() is None:
+            raise APIError(404, "HISTORY_USER_NOT_FOUND", "历史匿名用户不存在")
+    result = invoke(algorithm, "ml", uid, query.limit)
+    explanation_request = RecommendationRequest("ml", uid, query.limit, "business", DATASET, SPLIT)
+    try:
+        explanations = generate_explanations(explanation_request, algorithm, [item.model_dump() for item in result.items])
+    except ContractError as exc:
+        raise APIError(503 if exc.code in {"MODEL_BINDING_INVALID", "DATA_IDENTITY_INVALID"} else 500,
+            exc.code, str(exc)) from None
+    return {"algorithm": algorithm.value, "model_version": result.model_version,
+            "generated_at": result.generated_at.isoformat(), "limit": query.limit,
+            "total": len(explanations), "items": explanations}
