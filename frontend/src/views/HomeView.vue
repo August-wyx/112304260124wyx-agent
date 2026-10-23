@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowRight, Search, Reading, Star } from '@element-plus/icons-vue'
 import http from '../api'
 import { useAuth } from '../stores/auth'
@@ -14,6 +14,29 @@ const { data, error, loading, load } = useRemote<Page<Movie>>()
 const fetchMovies = () => load(async () => (await http.get<Page<Movie>>('/movies', { params: { per_page: 4 } })).data)
 const featured = computed(() => (data.value?.items || []).slice(0, 3))
 onMounted(fetchMovies)
+
+// 实验五：登录用户按是否已有评分切换推荐策略
+// 有评分 -> Content(内容画像) + ItemCF(协同过滤)；零评分新用户 -> Popular + ColdStart
+const ratedCount = ref<number | null>(null)
+watch(() => auth.account?.account_id, async (id) => {
+  ratedCount.value = null
+  if (!id) return
+  try {
+    const r = await http.get<Page<Movie>>('/me/ratings', { params: { page: 1, per_page: 1 } })
+    ratedCount.value = r.data.total
+  } catch { ratedCount.value = 0 }
+}, { immediate: true })
+const isNewUser = computed(() => auth.account !== null && ratedCount.value === 0)
+const primaryPanel = computed(() => !auth.account
+  ? { endpoint: null as string | null, algorithm: 'content', label: '为你推荐' }
+  : isNewUser.value
+    ? { endpoint: '/me/recommendations/popular' as string | null, algorithm: 'popular', label: '热门推荐' }
+    : { endpoint: '/me/recommendations/content' as string | null, algorithm: 'content', label: '为你推荐' })
+const secondaryPanel = computed(() => !auth.account
+  ? { endpoint: null as string | null, algorithm: 'itemcf', label: '协同过滤推荐' }
+  : isNewUser.value
+    ? { endpoint: '/me/recommendations/cold_start' as string | null, algorithm: 'cold_start', label: '按兴趣推荐' }
+    : { endpoint: '/me/recommendations/itemcf' as string | null, algorithm: 'itemcf', label: '协同过滤推荐' })
 </script>
 <template>
   <div class="page home-page">
@@ -49,8 +72,11 @@ onMounted(fetchMovies)
     </div>
 
     <section class="recommendation-section">
-      <div class="section-heading"><div><p class="eyebrow">MADE FOR YOUR TASTE</p><h2>你的下一部<span class="heading-dot">.</span></h2><p class="muted">评分与收藏记录喜好，五种算法各自给出答案。</p></div><RouterLink to="/experiments" class="text-link">查看实验室 →</RouterLink></div>
-      <div class="recommendation-columns"><AlgorithmPanel label="为你推荐" :endpoint="auth.account ? '/me/recommendations/content' : null" /><AlgorithmPanel label="热门推荐" :endpoint="auth.account ? '/me/recommendations/popular' : null" /></div>
+      <div class="section-heading"><div><p class="eyebrow">MADE FOR YOUR TASTE</p><h2>你的下一部<span class="heading-dot">.</span></h2><p class="muted">{{ isNewUser ? '还是新观众？先看全场热门，或按兴趣类型开启冷启动推荐。' : '评分与收藏记录喜好，推荐结果随你的最新评分实时更新。' }}</p></div><RouterLink to="/experiments" class="text-link">查看实验室 →</RouterLink></div>
+      <div class="recommendation-columns">
+        <AlgorithmPanel :label="primaryPanel.label" :algorithm="primaryPanel.algorithm" :endpoint="primaryPanel.endpoint" />
+        <AlgorithmPanel :label="secondaryPanel.label" :algorithm="secondaryPanel.algorithm" :endpoint="secondaryPanel.endpoint" />
+      </div>
     </section>
 
     <section class="browse-section">

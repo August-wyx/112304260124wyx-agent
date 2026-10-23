@@ -86,22 +86,33 @@ def _popular_stats() -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 def _neighbour_evidence(movie_id: str, watched: dict[str, float]) -> list[dict]:
-    """Return top-3 itemcf neighbours of movie_id that the user has rated."""
+    """Return the rated movies whose ItemCF neighbour tables actually scored movie_id.
+
+    Mirrors the scoring path in student/itemcf.py: for every history rating with
+    weight (rating - 2.5) > 0, the algorithm walks THAT movie's neighbour table
+    and adds sim * weight when the candidate appears in it. Evidence pairs are
+    therefore the exact contribution pairs, ranked by their score weight.
+    """
     try:
-        neighbours = _itemcf_neighbours().get(movie_id, ())
+        neighbours = _itemcf_neighbours()
     except (OSError, ValueError, ContractError):
         return []
     catalog = _catalog()
     hits = []
-    for nid, sim in neighbours:
-        if nid in watched:
-            hits.append({"neighbour_movie_id": nid,
-                         "neighbour_title": catalog.get(nid, {}).get("movielens_title", f"电影#{nid}"),
-                         "similarity": round(sim, 4),
-                         "user_rating": watched[nid]})
-            if len(hits) >= 3:
-                break
-    return hits
+    for rated_id, rating in watched.items():
+        weight = rating - 2.5
+        if weight <= 0:
+            continue
+        sim = next((s for nid, s in neighbours.get(rated_id, ()) if nid == movie_id), None)
+        if sim is None:
+            continue
+        hits.append({"neighbour_movie_id": rated_id,
+                     "neighbour_title": catalog.get(rated_id, {}).get("movielens_title", f"电影#{rated_id}"),
+                     "similarity": round(sim, 4),
+                     "user_rating": rating,
+                     "contribution": round(sim * weight, 4)})
+    hits.sort(key=lambda h: h["contribution"], reverse=True)
+    return hits[:3]
 
 
 def _content_evidence(movie_id: str, genre_profile: dict[str, float]) -> dict | None:
