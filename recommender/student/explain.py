@@ -91,10 +91,13 @@ def _neighbour_evidence(movie_id: str, watched: dict[str, float]) -> list[dict]:
         neighbours = _itemcf_neighbours().get(movie_id, ())
     except (OSError, ValueError, ContractError):
         return []
+    catalog = _catalog()
     hits = []
     for nid, sim in neighbours:
         if nid in watched:
-            hits.append({"neighbour_movie_id": nid, "similarity": round(sim, 4),
+            hits.append({"neighbour_movie_id": nid,
+                         "neighbour_title": catalog.get(nid, {}).get("movielens_title", f"电影#{nid}"),
+                         "similarity": round(sim, 4),
                          "user_rating": watched[nid]})
             if len(hits) >= 3:
                 break
@@ -182,7 +185,7 @@ def _render_itemcf(catalog: dict, evidence: list[dict]) -> list[dict]:
         title = catalog.get(nid, {}).get("movielens_title", f"电影#{nid}")
         rating_str = f"{hit['user_rating']:.1f}"
         sim_pct = round(hit["similarity"] * 100)
-        text = (f"你对《{title}》打了 {rating_str} 分，这部电影与它的内容相似度达 {sim_pct}%，"
+        text = (f"你对《{title}》打了 {rating_str} 分，这部电影与它的协同相似度达 {sim_pct}%，"
                 f"协同过滤算法因此推断你很可能也会喜欢这一部。")
         reasons.append({"type": "itemcf_neighbor", "evidence": hit, "text": text})
     return reasons
@@ -292,11 +295,13 @@ def explain(request: RecommendationRequest, algorithm: Algorithm, recommendation
             sources.append("cold_start")
 
         if not reasons:
-            # Fallback: we still attach the raw inputs so the explanation is not empty
+            # Fallback: explicit "insufficient evidence" per the task manual —
+            # never fabricate a reason when the model has no reliable evidence.
             reasons.append({
                 "type": "generic",
                 "evidence": {"watched_count": len(watched), "genre_profile": dict(list(genre_profile.items())[:5])},
-                "text": f"基于你的历史评分（共 {len(watched)} 部），{_algo_name(algorithm)} 算法推荐了这部电影。",
+                "text": (f"依据不足：{_algo_name(algorithm)} 算法未能为这部电影找到可靠的个性化依据，"
+                         f"仅基于你的历史评分（共 {len(watched)} 部）将其列入推荐，仅供参考。"),
             })
 
         explanations.append({
@@ -305,6 +310,7 @@ def explain(request: RecommendationRequest, algorithm: Algorithm, recommendation
             "genres": movie_genres,
             "rank": rank,
             "score": round(score, 4) if score is not None else None,
+            "watched_count": len(watched),
             "reasons": reasons,
             "sources": sources,
             "evidence_hash": _hash_evidence(reasons),

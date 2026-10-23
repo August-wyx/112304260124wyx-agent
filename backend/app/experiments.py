@@ -122,16 +122,24 @@ def history_explanations(ml_user_id: IdPath, algorithm: Algorithm, request: Requ
 
 
 def _attach_ai(algorithm: Algorithm, explanations: list[dict]) -> None:
-    """Batch-call Ark once to narrate all items, populate ai_reason per item."""
+    """Batch-call Ark once to narrate all items, populate ai_reason per item.
+
+    Always leaves ai_reason/ai_available on every item so the frontend can
+    show an explicit "AI unavailable" hint instead of failing silently.
+    """
     import os, json as _json, urllib.request, ssl
     if not (os.environ.get("ARK_API_KEY") and os.environ.get("ARK_ENDPOINT")):
+        for item in explanations:
+            item["ai_reason"] = None
+            item["ai_available"] = False
         return
     # Build a single batch prompt covering all items
     algo_label = {
         "itemcf": "协同过滤", "content": "内容推荐",
         "als": "矩阵分解", "popular": "热门推荐", "cold_start": "冷启动",
     }.get(algorithm.value, algorithm.value)
-    watched_count = 10
+    # Real history size from the explain step — never fabricate this number.
+    watched_count = explanations[0].get("watched_count") if explanations else None
     batch_lines = []
     for idx, item in enumerate(explanations, 1):
         title = item.get("title", f"电影#{item.get('movie_id')}")
@@ -140,12 +148,13 @@ def _attach_ai(algorithm: Algorithm, explanations: list[dict]) -> None:
         for r in item.get("reasons", []):
             ev = r.get("evidence", {})
             if algorithm.value == "itemcf" and "neighbour_movie_id" in ev:
-                ev_lines.append(f"  · 你给《邻居#{ev['neighbour_movie_id']}》打 {ev['user_rating']:.1f} 分；ItemCF 相似度 {ev['similarity']*100:.0f}%")
+                ntitle = ev.get("neighbour_title") or f"邻居#{ev['neighbour_movie_id']}"
+                ev_lines.append(f"  · 你给《{ntitle}》打 {ev['user_rating']:.1f} 分；与目标电影的 ItemCF 协同相似度 {ev['similarity']*100:.0f}%")
             elif algorithm.value == "content" and "matched_genres" in ev:
                 ev_lines.append(f"  · 类型匹配 {','.join(ev['matched_genres'])}；画像余弦 {ev['cosine_fit']*100:.0f}%")
             elif algorithm.value == "als" and "score" in ev:
                 ev_lines.append(f"  · ALS 隐因子匹配度 {ev['score']:.4f}")
-        batch_lines.append(f"{idx}. 《{title}》（类型：{genres}）\n" + "\n".join(ev_lines) if ev_lines else f"{idx}. 《{title}》")
+        batch_lines.append(f"{idx}. 《{title}》（类型：{genres}）\n" + "\n".join(ev_lines) if ev_lines else f"{idx}. 《{title}》（依据不足）")
 
     system = (
         "你是推荐系统的解释助手。以下是同一用户被 " + algo_label +
@@ -154,10 +163,12 @@ def _attach_ai(algorithm: Algorithm, explanations: list[dict]) -> None:
         "不要输出 JSON、不要加前言或总结。"
     )
     user_text = (
-        f"该用户共看过约 {watched_count} 部电影，以下是 Top-{len(explanations)} 推荐及其依据：\n\n" +
+        f"以下是 Top-{len(explanations)} 推荐及其依据：\n\n" +
         "\n".join(batch_lines) +
         "\n\n请按序号逐条给出自然语言解释。"
     )
+    if isinstance(watched_count, int) and watched_count > 0:
+        user_text = f"该用户共有 {watched_count} 条真实历史评分。\n" + user_text
     try:
         payload = _json.dumps({
             "model": os.environ["ARK_ENDPOINT"],
