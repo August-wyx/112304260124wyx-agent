@@ -11,7 +11,24 @@ import StatePanel from '../components/StatePanel.vue'
 import AlgorithmPanel from '../components/AlgorithmPanel.vue'
 const auth = useAuth()
 const { data, error, loading, load } = useRemote<Page<Movie>>()
-const fetchMovies = () => load(async () => (await http.get<Page<Movie>>('/movies', { params: { per_page: 8 } })).data)
+// Preload a local poster image to decide whether the movie has a real cover.
+function hasLocalPoster(movieId: number | string): Promise<boolean> {
+  return new Promise(resolve => {
+    const img = new Image()
+    img.onload = () => resolve(true)
+    img.onerror = () => resolve(false)
+    img.src = `/posters/${movieId}.jpg`
+  })
+}
+// Fetch a larger pool and keep only movies that actually have a poster image,
+// so the hero carousel never falls back to the placeholder card.
+const fetchMovies = () => load(async () => {
+  const page = (await http.get<Page<Movie>>('/movies', { params: { per_page: 24 } })).data
+  const checks = await Promise.all(page.items.map(m => hasLocalPoster(m.movie_id).then(ok => ({ m, ok }))))
+  page.items = checks.filter(c => c.ok).map(c => c.m).slice(0, 8)
+  page.total = page.items.length
+  return page
+})
 const featured = computed(() => data.value?.items || [])
 onMounted(fetchMovies)
 
