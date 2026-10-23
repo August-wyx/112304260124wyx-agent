@@ -69,3 +69,4 @@ ibdata*
 # Local overrides with secrets (never commit)
 docker-compose.override.yml
 docker-compose.override.yaml
+docker-compose.dev.yml

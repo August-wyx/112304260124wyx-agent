@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { Connection, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import http, { ApiError } from '../api'
@@ -27,6 +27,7 @@ const result = ref<AlgorithmResult | null>(null)
 const movies = ref<Record<string, Movie>>({})
 const explainData = ref<{ items: any[]; algorithm: string; model_version: string } | null>(null)
 const explainLoading = ref(false)
+const explainError = ref(false)
 const showExplain = ref(false)
 let run = 0
 onScopeDispose(() => { run++ })
@@ -85,10 +86,12 @@ async function openExplain() {
   if (!explainEndpoint.value) return
   showExplain.value = true
   explainLoading.value = true
+  explainError.value = false
   try {
     const response = await http.get(explainEndpoint.value, { params: { ai: true }, timeout: 60000 })
     explainData.value = response.data as any
   } catch (e) {
+    explainError.value = true
     explainData.value = { items: [], algorithm: props.algorithm, model_version: '' }
   } finally {
     explainLoading.value = false
@@ -214,7 +217,8 @@ watch(() => props.endpoint, load, { immediate: true })
         <div class="explain-loading"><el-icon class="spin"><Loading /></el-icon><span>正在为每部电影生成可核验的推荐理由…</span></div>
       </div>
       <div class="explain-body" v-else>
-        <div v-if="!explainRows.length" class="explain-empty">当前没有解释数据。</div>
+        <div v-if="explainError" class="explain-empty">解释暂不可用，请稍后重试。推荐列表不受影响。</div>
+        <div v-else-if="!explainRows.length" class="explain-empty">当前没有解释数据。</div>
         <article v-for="item in explainRows" :key="item.movie_id" class="explain-item">
           <header class="explain-item-head">
             <span class="explain-rank">#{{ item.rank }}</span>
