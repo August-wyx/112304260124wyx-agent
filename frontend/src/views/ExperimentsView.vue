@@ -27,6 +27,7 @@ type EvaluationSummary = {
 
 const algorithmNames: Record<string, string> = {
   content: '内容推荐', itemcf: '协同过滤', als: '矩阵分解', popular: '热门推荐', cold_start: '冷启动',
+  fusion: 'RRF 融合',
 }
 const subject = computed(() => source.value === 'ml' ? (selected.value ? `ml:${selected.value}` : '') : auth.account?.subject_key || '')
 const endpoint = computed(() => {
@@ -44,13 +45,17 @@ const appFavoriteTotal = computed(() => appFavorites.data.value?.total ?? 0)
 const zeroBehaviour = computed(() => appRatingTotal.value === 0 && appFavoriteTotal.value === 0)
 const interestHint = computed(() => interests.value.length ? `已选择 ${interests.value.length} 个兴趣类型` : '未选择兴趣：回退到热门排行')
 
-const gradeLabel = computed(() => algorithm.value === 'content' ? '内容匹配度' : algorithm.value === 'popular' ? '热度分' : algorithm.value === 'itemcf' ? '协同分' : algorithm.value === 'cold_start' ? '冷启动分' : '推荐分')
+const gradeLabel = computed(() => {
+  const map: Record<string, string> = { content: '内容匹配度', popular: '热度分', itemcf: '协同分', cold_start: '冷启动分', als: '模型内积分', fusion: '融合RRF分' }
+  return map[algorithm.value] || '推荐分'
+})
 const notes: Record<string, string> = {
   content: '依据真实历史评分的类型偏好生成，已排除看过的电影。',
   popular: '由真实历史评分的数量与平均分共同排序，与当前观众行为无关。',
   itemcf: '由该观众评分过的电影在协同相似度图上扩散得到，已排除看过的电影。',
   cold_start: '',
   als: '由 Spark MLlib ALS 在真实评分矩阵上学习隐因子，按用户向量与电影向量的内积排序，已排除看过的电影。',
+  fusion: 'ItemCF + Content + ALS 三路排序经 Reciprocal Rank Fusion 融合，融合分数为 Σ 1/(60 + rank)。',
 }
 const resultNote = computed(() => algorithm.value === 'cold_start'
   ? (interests.value.length

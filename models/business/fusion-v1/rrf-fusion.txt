@@ -1,0 +1,1 @@
+﻿RRF fusion manifest placeholder. The fusion provider has no standalone artifacts; it delegates to child providers.
