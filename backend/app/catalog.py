@@ -52,11 +52,20 @@ def genres(request: Request):
 def movies(request: Request, query: Annotated[MovieQuery, Query()]):
     clauses, values = [], {"limit": query.per_page, "offset": (query.page - 1) * query.per_page}
     with request.app.state.db.connection() as conn:
-        if query.genre:
-            if query.genre not in get_genres(conn):
+        # Multi-genre OR filter (movie has at least one selected genre) takes priority;
+        # fall back to legacy single `genre` for backward compatibility.
+        selected_genres = [g for g in (query.genres or "").split(",") if g]
+        if not selected_genres and query.genre:
+            selected_genres = [query.genre]
+        if selected_genres:
+            valid = set(get_genres(conn))
+            invalid = [g for g in selected_genres if g not in valid]
+            if invalid:
                 raise APIError(422, "INVALID_GENRE", "类型不在本数据包电影分类中")
-            clauses.append("CONCAT('|',genres,'|') LIKE :genre")
-            values["genre"] = "%|" + query.genre + "|%"
+            sub = " OR ".join(f"CONCAT('|',genres,'|') LIKE :g{i}" for i in range(len(selected_genres)))
+            clauses.append("(" + sub + ")")
+            for i, g in enumerate(selected_genres):
+                values[f"g{i}"] = "%|" + g + "|%"
         if query.q and query.q.strip():
             escaped = query.q.strip().replace("!", "!!").replace("%", "!%").replace("_", "!_")
             clauses.append("(LOWER(movielens_title) LIKE LOWER(:term) ESCAPE '!' OR LOWER(COALESCE(title_zh,'')) LIKE LOWER(:term) ESCAPE '!')")

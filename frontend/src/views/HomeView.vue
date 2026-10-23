@@ -11,8 +11,8 @@ import StatePanel from '../components/StatePanel.vue'
 import AlgorithmPanel from '../components/AlgorithmPanel.vue'
 const auth = useAuth()
 const { data, error, loading, load } = useRemote<Page<Movie>>()
-const fetchMovies = () => load(async () => (await http.get<Page<Movie>>('/movies', { params: { per_page: 4 } })).data)
-const featured = computed(() => (data.value?.items || []).slice(0, 3))
+const fetchMovies = () => load(async () => (await http.get<Page<Movie>>('/movies', { params: { per_page: 8 } })).data)
+const featured = computed(() => data.value?.items || [])
 onMounted(fetchMovies)
 
 // 实验五：登录用户按是否已有评分切换推荐策略
@@ -54,12 +54,15 @@ const secondaryPanel = computed(() => !auth.account
       </div>
       <div class="hero-gallery">
         <span class="gallery-glow" aria-hidden="true" />
-        <div v-for="(movie, index) in featured" :key="movie.movie_id" class="gallery-item" :class="`gallery-item-${index + 1}`">
-          <RouterLink :to="`/movies/${movie.movie_id}`" :aria-label="`查看 ${movie.movielens_title} 详情`">
-            <MoviePoster :path="movie.poster_path" :title="movie.movielens_title" :movie-id="movie.movie_id" :year="movie.release_year" :genres="movie.genres" />
-          </RouterLink>
-        </div>
-        <div v-if="!featured.length" class="gallery-empty" aria-hidden="true"><span>华</span><p>正在整理片单</p></div>
+        <el-carousel v-if="featured.length" class="poster-carousel" :interval="4000" arrow="hover" indicator-position="outside" loop height="340px">
+          <el-carousel-item v-for="movie in featured" :key="movie.movie_id">
+            <RouterLink class="carousel-slide" :to="`/movies/${movie.movie_id}`" :aria-label="`查看 ${movie.movielens_title} 详情`">
+              <MoviePoster :path="movie.poster_path" :title="movie.movielens_title" :movie-id="movie.movie_id" :year="movie.release_year" :genres="movie.genres" />
+              <span class="carousel-caption"><strong>{{ movie.movielens_title }}</strong><em>{{ movie.release_year }}</em></span>
+            </RouterLink>
+          </el-carousel-item>
+        </el-carousel>
+        <div v-else class="gallery-empty" aria-hidden="true"><span>华</span><p>正在整理片单</p></div>
         <div class="gallery-caption"><span>正在放映</span><strong>NOW SHOWING</strong></div>
       </div>
     </section>
@@ -99,12 +102,18 @@ const secondaryPanel = computed(() => !auth.account
 .hero-stats dd{margin:6px 0 0;font-family:Georgia,serif;font-size:26px;color:var(--text);line-height:1}
 .hero-stats dd small{font-size:12px;font-family:inherit;color:var(--muted);margin-left:2px}
 .hero-gallery{position:relative;min-height:340px;display:flex;align-items:center;justify-content:center}
-.gallery-glow{position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,#f06a5033,transparent 68%);filter:blur(20px)}
-.gallery-item{position:absolute;width:168px;transition:transform .45s cubic-bezier(.2,.7,.3,1);border-radius:12px;box-shadow:0 26px 50px #00000066}
-.gallery-item-1{transform:translate(-108px,4px) rotate(-9deg);z-index:1;width:150px;opacity:.82}
-.gallery-item-2{transform:translate(0,-18px);z-index:3;width:186px}
-.gallery-item-3{transform:translate(106px,14px) rotate(9deg);z-index:2;width:150px;opacity:.82}
-.gallery-item:hover{transform:translateY(-12px) rotate(0);z-index:4;opacity:1}
+.gallery-glow{position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,#f06a5033,transparent 68%);filter:blur(20px);pointer-events:none}
+.poster-carousel{width:100%;max-width:240px;border-radius:14px;overflow:visible}
+.poster-carousel :deep(.el-carousel__item){display:flex;align-items:center;justify-content:center}
+.poster-carousel :deep(.el-carousel__indicators--outside){bottom:-34px}
+.poster-carousel :deep(.el-carousel__button){background:#f06a5080}
+.poster-carousel :deep(.el-carousel__arrow){background:#00000055;color:#fff}
+.carousel-slide{position:relative;display:block;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 26px 50px #00000066;transition:transform .4s cubic-bezier(.2,.7,.3,1)}
+.carousel-slide:hover{transform:translateY(-8px) scale(1.02)}
+.carousel-slide .el-image,.carousel-slide img{display:block;width:100%}
+.carousel-caption{position:absolute;left:0;right:0;bottom:0;padding:30px 14px 12px;background:linear-gradient(transparent,#000000cc);color:#fff;display:flex;flex-direction:column;gap:2px;font-family:var(--font-display)}
+.carousel-caption strong{font-size:14px;font-weight:600;line-height:1.3}
+.carousel-caption em{font-style:normal;font-size:11px;color:#f06a50;letter-spacing:.08em}
 .gallery-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);font-size:12px;letter-spacing:.2em}
 .gallery-empty span{width:76px;height:76px;border-radius:18px;border:1px solid #f06a5055;display:grid;place-items:center;font-family:var(--font-display);font-size:32px;color:var(--accent)}
 .gallery-caption{position:absolute;bottom:-6px;right:0;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:9px;letter-spacing:.24em;color:var(--muted)}
@@ -117,7 +126,7 @@ const secondaryPanel = computed(() => !auth.account
 .feature-link{color:var(--accent);white-space:nowrap;min-height:32px;display:inline-flex;align-items:center}
 .browse-section,.recommendation-section{margin-top:46px}
 .recommendation-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-@media(max-width:1100px){.hero-stage{padding:40px 32px;gap:24px}.hero-gallery{min-height:300px}.gallery-item-1,.gallery-item-3{width:128px}.gallery-item-2{width:158px}}
+@media(max-width:1100px){.hero-stage{padding:40px 32px;gap:24px}.hero-gallery{min-height:300px}.poster-carousel{max-width:200px}}
 @media(max-width:860px){.hero-stage{grid-template-columns:1fr;padding:36px 28px}.hero-gallery{min-height:290px;order:-1}.hero-stats{gap:26px}.recommendation-columns{grid-template-columns:1fr}}
-@media(max-width:540px){.hero-stage{padding:26px 20px;border-radius:14px}.hero-gallery{min-height:230px}.gallery-item-1{transform:translate(-78px,2px) rotate(-9deg);width:100px}.gallery-item-2{width:132px}.gallery-item-3{transform:translate(78px,10px) rotate(9deg);width:100px}.hero-stage h1{font-size:34px;margin:14px 0 12px}.hero-description{font-size:13px}.hero-stats{gap:18px;margin-top:24px;padding-top:16px}.hero-stats dd{font-size:22px}.feature-strip{gap:14px}.feature-strip .feature-icon{width:30px;height:30px}.feature-link{display:none}.hero-actions .button{padding:10px 14px}}
+@media(max-width:540px){.hero-stage{padding:26px 20px;border-radius:14px}.hero-gallery{min-height:230px}.poster-carousel{max-width:160px}.hero-stage h1{font-size:34px;margin:14px 0 12px}.hero-description{font-size:13px}.hero-stats{gap:18px;margin-top:24px;padding-top:16px}.hero-stats dd{font-size:22px}.feature-strip{gap:14px}.feature-strip .feature-icon{width:30px;height:30px}.feature-link{display:none}.hero-actions .button{padding:10px 14px}}
 </style>

@@ -10,16 +10,30 @@ import MovieCard from '../components/MovieCard.vue'
 import StatePanel from '../components/StatePanel.vue'
 import PageNav from '../components/PageNav.vue'
 const route = useRoute(), router = useRouter()
-const q = ref(''), genre = ref(''), genres = ref<string[]>([])
+const q = ref(''), selectedGenres = ref<string[]>([]), genres = ref<string[]>([])
 const genreError = ref<unknown>(null)
 const { data, error, loading, load } = useRemote<Page<Movie>>()
 const page = computed(() => Math.max(1, Math.min(100000, Number(route.query.page) || 1)))
 const quickGenres = computed(() => genres.value.slice(0, 10))
+const genresParam = computed(() => selectedGenres.value.join(','))
 async function fetchGenres() { try { genres.value = (await http.get<{items:string[]}>('/genres')).data.items; genreError.value = null } catch (e) { genreError.value = e } }
-function fetchMovies() { return load(async () => (await http.get<Page<Movie>>('/movies', { params: { page: page.value, per_page: 12, ...(q.value ? { q: q.value } : {}), ...(genre.value ? { genre: genre.value } : {}) } })).data) }
-function search(nextPage = 1) { void router.push({ path: '/movies', query: { ...(q.value ? { q: q.value } : {}), ...(genre.value ? { genre: genre.value } : {}), ...(nextPage > 1 ? { page: nextPage } : {}) } }); if (nextPage === page.value && q.value === (route.query.q || '') && genre.value === (route.query.genre || '')) void fetchMovies() }
-function pickGenre(value: string) { genre.value = genre.value === value ? '' : value; search() }
-watch(() => route.fullPath, () => { q.value = typeof route.query.q === 'string' ? route.query.q : ''; genre.value = typeof route.query.genre === 'string' ? route.query.genre : ''; void fetchMovies() }, { immediate: true })
+function fetchMovies() { return load(async () => (await http.get<Page<Movie>>('/movies', { params: { page: page.value, per_page: 12, ...(q.value ? { q: q.value } : {}), ...(genresParam.value ? { genres: genresParam.value } : {}) } })).data) }
+function search(nextPage = 1) {
+  void router.push({ path: '/movies', query: { ...(q.value ? { q: q.value } : {}), ...(genresParam.value ? { genres: genresParam.value } : {}), ...(nextPage > 1 ? { page: nextPage } : {}) } })
+  if (nextPage === page.value && q.value === (route.query.q || '') && genresParam.value === (route.query.genres || '')) void fetchMovies()
+}
+function toggleGenre(value: string) {
+  const i = selectedGenres.value.indexOf(value)
+  if (i >= 0) selectedGenres.value.splice(i, 1); else selectedGenres.value.push(value)
+  search()
+}
+function clearGenres() { if (selectedGenres.value.length) { selectedGenres.value = []; search() } }
+watch(() => route.fullPath, () => {
+  q.value = typeof route.query.q === 'string' ? route.query.q : ''
+  const g = route.query.genres
+  selectedGenres.value = typeof g === 'string' && g ? g.split(',').filter(Boolean) : []
+  void fetchMovies()
+}, { immediate: true })
 void fetchGenres()
 </script>
 <template>
@@ -31,17 +45,17 @@ void fetchGenres()
 
     <form class="filter-bar library-filter" @submit.prevent="search()">
       <div class="search-field"><label for="movie-search">搜索片名</label><el-input id="movie-search" v-model="q" :maxlength="100" placeholder="输入中文或原始片名" :prefix-icon="Search" clearable /></div>
-      <div class="genre-field"><label for="genre-select">电影类型</label><el-select id="genre-select" v-model="genre" placeholder="全部类型" clearable><el-option v-for="value in genres" :key="value" :label="genreLabel(value)" :value="value" /></el-select></div>
+      <div class="genre-field"><label for="genre-select">电影类型（可多选）</label><el-select id="genre-select" v-model="selectedGenres" placeholder="全部类型" multiple collapse-tags collapse-tags-tooltip clearable><el-option v-for="value in genres" :key="value" :label="genreLabel(value)" :value="value" /></el-select></div>
       <el-button type="primary" native-type="submit" :loading="loading">搜索电影</el-button>
     </form>
 
     <div v-if="quickGenres.length" class="quick-genres">
       <span class="quick-label">快速筛选</span>
-      <button v-for="value in quickGenres" :key="value" type="button" :class="{ active: genre === value }" @click="pickGenre(value)">{{ genreLabel(value) }}</button>
-      <button v-if="genre" type="button" class="clear" @click="pickGenre(genre)">清除筛选</button>
+      <button v-for="value in quickGenres" :key="value" type="button" :class="{ active: selectedGenres.includes(value) }" @click="toggleGenre(value)">{{ genreLabel(value) }}</button>
+      <button v-if="selectedGenres.length" type="button" class="clear" @click="clearGenres">清除筛选（{{ selectedGenres.length }}）</button>
     </div>
     <StatePanel v-if="genreError" :error="genreError" @retry="fetchGenres" />
-    <div class="result-caption"><span>{{ data ? `${data.total.toLocaleString()} 部电影` : '电影档案' }}</span><span>{{ genre ? `类型：${genreLabel(genre)}` : '原始编号升序' }} · 每页 12 部</span></div>
+    <div class="result-caption"><span>{{ data ? `${data.total.toLocaleString()} 部电影` : '电影档案' }}</span><span>{{ selectedGenres.length ? `类型：${selectedGenres.map(genreLabel).join('、')}` : '原始编号升序' }} · 每页 12 部</span></div>
     <StatePanel :loading="loading" :error="error" :empty="!!data && !data.items.length" title="没有找到匹配的电影" description="尝试简短片名，或清除类型筛选。" @retry="fetchMovies"><div class="movie-grid"><MovieCard v-for="movie in data?.items" :key="movie.movie_id" :movie="movie" /></div></StatePanel>
     <PageNav :page="page" :total="data?.total || 0" @change="search" />
   </div>

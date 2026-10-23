@@ -22,6 +22,7 @@ class Page(Input):
 class MovieQuery(Page):
     q: str | None = Field(default=None, max_length=100)
     genre: str | None = Field(default=None, max_length=40)
+    genres: str | None = Field(default=None, max_length=200)
 
 
 class RatingInput(Input):
