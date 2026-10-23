@@ -5,6 +5,12 @@ algorithm (ItemCF neighbour similarities, Content genre matches, ALS latent
 factors, Popular popularity stats) and the viewer's real history, then
 renders a natural-language reason grounded in those numbers.
 
+When Ark (Doubao) API credentials are available via ARK_API_KEY / ARK_ENDPOINT
+environment variables, the raw evidence is additionally sent to the model for
+a natural-language AI-generated explanation that can be shown alongside the
+rule-based fallback. If the API is unavailable, template-rendered reasons are
+returned unchanged — LLM never decides what to recommend, it only narrates.
+
 Design rule: every reason must carry its raw evidence so that a reviewer
 can trace each claim back to the model artifact or the history table. No
 hard-coded copy, no simulated data.
@@ -12,8 +18,10 @@ hard-coded copy, no simulated data.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -313,6 +321,90 @@ def _algo_name(algorithm: Algorithm) -> str:
 
 def _hash_evidence(reasons: list[dict]) -> str:
     """Deterministic short hash of all evidence dicts for tamper-check display."""
-    import hashlib
     body = json.dumps([r["evidence"] for r in reasons], sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(body.encode()).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# Ark (Doubao) LLM integration
+# ---------------------------------------------------------------------------
+
+_ARK_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+_ARK_SYSTEM = (
+    "你是推荐系统的解释助手。用户会给你一部被推荐电影的真实依据（用户历史评分、"
+    "算法命中的相似度、类型匹配等）。你的任务：\n"
+    "1. 用普通话把依据翻译成一段自然的中文解释，2-4 句话即可；\n"
+    "2. 必须只依据提供的事实，不得编造评分、电影、相似度或类型；\n"
+    "3. 不得修改或质疑推荐列表，你只负责解释为什么推荐它；\n"
+    "4. 不要输出 JSON、不要用 Markdown、不要加称呼。"
+)
+
+
+def _ark_available() -> bool:
+    return bool(os.environ.get("ARK_API_KEY") and os.environ.get("ARK_ENDPOINT"))
+
+
+def ask_llm_ai_explanation(
+    algorithm: Algorithm,
+    movie_title: str,
+    movie_genres: list[str],
+    reasons: list[dict],
+    user_watched_count: int,
+) -> str | None:
+    """Call Ark Doubao to narrate the evidence. Returns None on any failure."""
+    if not _ark_available():
+        return None
+    # Build a compact, evidence-only payload the model can safely narrate.
+    algo_name = _algo_name(algorithm)
+    evidence_lines = []
+    for r in reasons:
+        ev = r.get("evidence", {})
+        t = r.get("type", "")
+        if algorithm == Algorithm.itemcf and "neighbour_movie_id" in ev:
+            evidence_lines.append(
+                f"- 你给电影#{ev['neighbour_movie_id']}打了 {ev['user_rating']:.1f} 分；"
+                f"它与目标电影的 ItemCF 相似度 {ev['similarity']:.4f}。"
+            )
+        elif algorithm == Algorithm.content and "matched_genres" in ev:
+            evidence_lines.append(
+                f"- 目标电影类型 {','.join(ev['matched_genres'])} 与你的画像匹配；"
+                f"余弦相似度 {ev['cosine_fit']:.4f}。"
+            )
+        elif algorithm == Algorithm.als and "score" in ev:
+            evidence_lines.append(f"- ALS 隐因子匹配度得分 {ev['score']:.4f}。")
+        else:
+            evidence_lines.append(f"- {json.dumps(ev, ensure_ascii=False)}")
+    user_text = (
+        f"请解释为什么推荐电影《{movie_title}》（类型：{'、'.join(movie_genres) or '未知'}）。\n"
+        f"推荐算法：{algo_name}。你共看过 {user_watched_count} 部电影。\n"
+        f"真实依据如下：\n" + "\n".join(evidence_lines) +
+        "\n\n请用 2-4 句中文自然语言解释，不要编造。"
+    )
+    try:
+        import urllib.request
+        import ssl
+        payload = json.dumps({
+            "model": os.environ["ARK_ENDPOINT"],
+            "messages": [
+                {"role": "system", "content": _ARK_SYSTEM},
+                {"role": "user", "content": user_text},
+            ],
+            "temperature": 0.3,
+            "max_tokens": 300,
+        }, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            _ARK_URL, data=payload, method="POST",
+            headers={
+                "Authorization": f"Bearer {os.environ['ARK_API_KEY']}",
+                "Content-Type": "application/json",
+            },
+        )
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        content = body["choices"][0]["message"]["content"].strip()
+        if not content or len(content) < 5:
+            return None
+        return content
+    except Exception:
+        return None

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { Connection, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import http, { ApiError } from '../api'
@@ -86,7 +86,7 @@ async function openExplain() {
   showExplain.value = true
   explainLoading.value = true
   try {
-    const response = await http.get(explainEndpoint.value)
+    const response = await http.get(explainEndpoint.value, { params: { ai: true }, timeout: 60000 })
     explainData.value = response.data as any
   } catch (e) {
     explainData.value = { items: [], algorithm: props.algorithm, model_version: '' }
@@ -222,6 +222,10 @@ watch(() => props.endpoint, load, { immediate: true })
             <RouterLink class="explain-detail" :to="`/movies/${item.movie_id}`" @click="showExplain = false">详情 →</RouterLink>
           </header>
           <p class="explain-genres">{{ item.genres?.join(' / ') || '—' }}</p>
+          <div v-if="item.ai_reason" class="explain-ai-block">
+            <span class="ai-badge">AI 推荐理由</span>
+            <p class="ai-reason-text">{{ item.ai_reason }}</p>
+          </div>
           <ul class="explain-reasons">
             <li v-for="(reason, i) in item.reasons" :key="i" class="explain-reason">
               <span class="reason-type">{{ reason.type === 'itemcf_neighbor' ? '协同过滤依据' : reason.type === 'content_genre' ? '类型匹配依据' : reason.type === 'popularity' ? '热门依据' : reason.type === 'als_latent' ? '隐因子依据' : reason.type === 'coldstart_fallback' ? '冷启动回退' : '综合依据' }}</span>
@@ -230,7 +234,7 @@ watch(() => props.endpoint, load, { immediate: true })
             </li>
           </ul>
         </article>
-        <p class="explain-foot">每条理由附带原始证据，可回溯到模型工件或用户历史评分。</p>
+        <p class="explain-foot">每条理由附带原始证据，可回溯到模型工件或用户历史评分。AI 解释由 Doubao 大模型基于真实依据生成。</p>
       </div>
     </el-dialog>
   </section>
@@ -293,6 +297,9 @@ watch(() => props.endpoint, load, { immediate: true })
 .reason-type{font-size:10px;letter-spacing:.04em;color:var(--gold);font-family:monospace;white-space:nowrap;padding-top:2px}
 .reason-text{font-size:13px;color:var(--text);line-height:1.65}
 .reason-evidence{font-size:10px;color:var(--accent);font-family:monospace;white-space:nowrap;align-self:center;padding:3px 8px;border:1px solid var(--accent);border-radius:99px;background:var(--accent-tint)}
+.explain-ai-block{background:linear-gradient(135deg,rgba(100,149,237,.08),rgba(147,112,219,.08));border:1px solid rgba(147,112,219,.3);border-radius:10px;padding:14px 16px;margin:8px 0 12px;position:relative}
+.ai-badge{display:inline-block;font-size:10px;letter-spacing:.06em;color:#9370db;font-weight:600;font-family:monospace;padding:2px 8px;border-radius:99px;background:rgba(147,112,219,.12);border:1px solid rgba(147,112,219,.3);margin-bottom:8px}
+.ai-reason-text{margin:0;font-size:14px;color:var(--text);line-height:1.7;font-weight:500}
 .explain-foot{margin:18px 0 0;font-size:11px;color:var(--muted);text-align:center}
 @media(max-width:780px){.rec-list{padding:10px}.rec-card{grid-template-columns:66px minmax(0,1fr);gap:13px;padding:12px}.rec-more{display:none}.result-head{padding:18px 16px 16px}.result-meta{gap:14px}}
 @media(max-width:540px){.rec-card{grid-template-columns:58px minmax(0,1fr);gap:11px}.rec-title h4{font-size:14px}.score-track{max-width:none}.score-row{margin-top:9px}}
