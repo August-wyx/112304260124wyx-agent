@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<script setup lang="ts">
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { Connection, ChatDotRound, Loading } from '@element-plus/icons-vue'
 import http, { ApiError } from '../api'
