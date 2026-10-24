@@ -71,7 +71,7 @@ const secondaryPanel = computed(() => !auth.account
       </div>
       <div class="hero-gallery">
         <span class="gallery-glow" aria-hidden="true" />
-        <el-carousel v-if="featured.length" class="poster-carousel" :interval="4000" arrow="hover" indicator-position="outside" loop height="340px">
+        <el-carousel v-if="featured.length" class="poster-carousel" type="card" :interval="4000" arrow="hover" loop height="340px">
           <el-carousel-item v-for="movie in featured" :key="movie.movie_id">
             <RouterLink class="carousel-slide" :to="`/movies/${movie.movie_id}`" :aria-label="`查看 ${movie.movielens_title} 详情`">
               <MoviePoster :path="movie.poster_path" :title="movie.movielens_title" :movie-id="movie.movie_id" :year="movie.release_year" :genres="movie.genres" />
@@ -106,7 +106,7 @@ const secondaryPanel = computed(() => !auth.account
   </div>
 </template>
 <style scoped>
-.hero-stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,320px);gap:60px;padding:52px 48px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:radial-gradient(90% 120% at 100% 0%,#f06a5017,transparent 55%),linear-gradient(120deg,#141b26,#10151e 65%,#151c27)}
+.hero-stage{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:40px;padding:52px 48px;border:1px solid var(--border);border-radius:18px;overflow:hidden;background:radial-gradient(90% 120% at 100% 0%,#f06a5017,transparent 55%),linear-gradient(120deg,#141b26,#10151e 65%,#151c27)}
 .hero-kicker{display:inline-flex;align-items:center;gap:9px;font-size:10px;letter-spacing:.24em;color:var(--muted)}
 .kicker-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 5px #f06a5020}
 .hero-copy{position:relative;z-index:1;display:flex;flex-direction:column;justify-content:center}
@@ -118,12 +118,15 @@ const secondaryPanel = computed(() => !auth.account
 .hero-stats dt{font-size:10px;letter-spacing:.16em;color:var(--muted)}
 .hero-stats dd{margin:6px 0 0;font-family:Georgia,serif;font-size:26px;color:var(--text);line-height:1}
 .hero-stats dd small{font-size:12px;font-family:inherit;color:var(--muted);margin-left:2px}
-.hero-gallery{position:relative;min-height:340px;display:flex;align-items:center;justify-content:center;padding-left:20px}
+.hero-gallery{position:relative;min-height:400px;display:flex;align-items:center;justify-content:center;padding-bottom:40px}
 .gallery-glow{position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,#f06a5033,transparent 68%);filter:blur(20px);pointer-events:none}
-.poster-carousel{width:100%;max-width:280px;border-radius:14px;overflow:visible;flex-shrink:0}
-.poster-carousel :deep(.el-carousel__item){display:flex;align-items:center;justify-content:center}
-.poster-carousel :deep(.el-carousel__indicators--outside){bottom:-34px}
-.poster-carousel :deep(.el-carousel__button){background:#f06a5080}
+.poster-carousel{width:100%;max-width:600px;border-radius:14px;overflow:visible}
+.poster-carousel :deep(.el-carousel__item){display:flex;align-items:center;justify-content:center;overflow:visible}
+.poster-carousel :deep(.el-carousel__mask){background:transparent}
+.poster-carousel :deep(.el-carousel__item.is-active){z-index:2}
+.poster-carousel :deep(.el-carousel__indicators){position:absolute;bottom:-30px;left:50%;transform:translateX(-50%);z-index:10}
+.poster-carousel :deep(.el-carousel__button){background:#ffffff40;width:8px;height:8px;border-radius:50%;transition:all .3s}
+.poster-carousel :deep(.el-carousel__indicator.is-active .el-carousel__button){background:#f06a50;width:20px;border-radius:4px}
 .poster-carousel :deep(.el-carousel__arrow){background:#00000055;color:#fff}
 .carousel-slide{position:relative;display:block;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 26px 50px #00000066;transition:transform .4s cubic-bezier(.2,.7,.3,1)}
 .carousel-slide:hover{transform:translateY(-8px) scale(1.02)}
@@ -143,7 +146,7 @@ const secondaryPanel = computed(() => !auth.account
 .feature-link{color:var(--accent);white-space:nowrap;min-height:32px;display:inline-flex;align-items:center}
 .browse-section,.recommendation-section{margin-top:46px}
 .recommendation-columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-@media(max-width:1100px){.hero-stage{padding:40px 32px;gap:32px;grid-template-columns:minmax(0,1fr) minmax(220px,260px)}.hero-gallery{min-height:300px;padding-left:0}.poster-carousel{max-width:220px}}
-@media(max-width:860px){.hero-stage{grid-template-columns:1fr;padding:36px 28px;gap:32px}.hero-gallery{min-height:290px;order:-1;padding-left:0}.hero-stats{gap:26px}.recommendation-columns{grid-template-columns:1fr}}
-@media(max-width:540px){.hero-stage{padding:26px 20px;border-radius:14px;gap:24px}.hero-gallery{min-height:230px}.poster-carousel{max-width:180px}.hero-stage h1{font-size:34px;margin:14px 0 12px}.hero-description{font-size:13px}.hero-stats{gap:18px;margin-top:24px;padding-top:16px}.hero-stats dd{font-size:22px}.feature-strip{gap:14px}.feature-strip .feature-icon{width:30px;height:30px}.feature-link{display:none}.hero-actions .button{padding:10px 14px}}
+@media(max-width:1100px){.hero-stage{padding:40px 32px;gap:24px}.hero-gallery{min-height:300px}.poster-carousel{max-width:200px}}
+@media(max-width:860px){.hero-stage{grid-template-columns:1fr;padding:36px 28px}.hero-gallery{min-height:290px;order:-1}.hero-stats{gap:26px}.recommendation-columns{grid-template-columns:1fr}}
+@media(max-width:540px){.hero-stage{padding:26px 20px;border-radius:14px}.hero-gallery{min-height:230px}.poster-carousel{max-width:160px}.hero-stage h1{font-size:34px;margin:14px 0 12px}.hero-description{font-size:13px}.hero-stats{gap:18px;margin-top:24px;padding-top:16px}.hero-stats dd{font-size:22px}.feature-strip{gap:14px}.feature-strip .feature-icon{width:30px;height:30px}.feature-link{display:none}.hero-actions .button{padding:10px 14px}}
 </style>
